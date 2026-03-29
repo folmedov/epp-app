@@ -1,12 +1,8 @@
 # Requirements Specification: Job Tracker (EEPP & TEEE)
 
-## 1. Project Goal
-Build an automated ETL pipeline to track Chilean public sector job offers, prioritizing EEPP for fresh data and TEEE for historical state tracking.
-
-## 2. Status Tracker (Sprints)
+## 1. Status Tracker (Sprints)
 
 ### 🏗️ Sprint 1: Foundation & EEPP Ingestion
-- [ ] **1.1 Project Setup**: Initialize folder structure and environment variables (`.env`, `config.py`).
 - [x] **1.1 Project Setup**: Initialize folder structure and environment variables (`.env`, `config.py`).
 - [x] **1.2 EEPP API Discovery**: Identify endpoints, available statuses, payload structure, key fields, pagination mechanism, and scraping risks.
 - [ ] **1.3 EEPP Client**: Implement async extractor for `empleospublicos.cl` (Status: postulacion/evaluacion).
@@ -22,10 +18,3 @@ Build an automated ETL pipeline to track Chilean public sector job offers, prior
 ### 📊 Sprint 3: Analysis & Reporting
 - [ ] **3.1 Analytics Views**: Create SQL views in Postgres for salary averages and regional demand.
 - [ ] **3.2 Notification System**: Simple script to alert of new matches via Telegram/Email.
-
----
-
-## 3. Business Rules (Current)
-- **Identity**: The `fingerprint` is the primary key for deduplication.
-- **Source Priority**: EEPP is the "Master" for salary data.
-- **Audit**: Every record must store the original JSON in a `raw_data` (JSONB) column.

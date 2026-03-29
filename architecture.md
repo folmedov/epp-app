@@ -1,10 +1,7 @@
 # Architecture Specification: Job Tracker (EEPP & TEEE)
 
-## 1. System Overview
-An ETL (Extract, Transform, Load) pipeline written in Python to synchronize job offers from Chilean public sector portals (EEPP and TEEE) into a Neon (PostgreSQL) database for tracking and data analysis.
-
-## 2. Project Directory Structure
-All source code must reside in the `src/` directory following this layout:
+## 1. Target Project Structure
+All source code should converge toward the following layout as the project evolves:
 
 ```text
 job_tracker/
@@ -30,7 +27,7 @@ job_tracker/
 └── .env                         # Secrets (Database URL, API Keys)
 ```  
 
-## 3. Database Schema (PostgreSQL / Neon)
+## 2. Database Schema (PostgreSQL / Neon)
 The primary table is job_offers. It must support high-performance analysis and JSON audit.
 
 |Column|Type|Description|
@@ -50,13 +47,5 @@ The primary table is job_offers. It must support high-performance analysis and J
 |created_at|Timestamp|Automatic record creation time (UTC)|
 |updated_at|Timestamp|Time of last state change or update (UTC)|
 
-## 4. Technical Constraints
-* ORM: SQLAlchemy 2.0 using the `AsyncAttrs` mixin and `AsyncSession`.
-* Drivers: `asyncpg` for PostgreSQL connection.
-* Deduplication: Use PostgreSQL `ON CONFLICT (fingerprint) DO UPDATE` to ensure idempotency.
-* Schemas: Every database interaction must be preceded by a Pydantic `JobOffer` schema validation.
-
-## 5. Data Flow (The Pipeline)
-1. Extraction: `EEPPClient` fetches active offers (hot data).
-2. Transformation: `transformers.py` cleans text and generates the `fingerprint` based on: `title + institution + region + salary_bruto`.
-3. Persistence: `main.py` calls the database layer to perform an Upsert (Insert new or Update state if fingerprint exists).
+### Observations:
+- The system uses a fingerprint as the deduplication key across sources.
