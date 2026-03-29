@@ -7,10 +7,12 @@ Build an automated ETL pipeline to track Chilean public sector job offers, prior
 
 ### 🏗️ Sprint 1: Foundation & EEPP Ingestion
 - [ ] **1.1 Project Setup**: Initialize folder structure and environment variables (`.env`, `config.py`).
-- [ ] **1.2 Data Models**: Define Pydantic schemas for validation and SQLAlchemy models for Neon.
+- [x] **1.1 Project Setup**: Initialize folder structure and environment variables (`.env`, `config.py`).
+- [x] **1.2 EEPP API Discovery**: Identify endpoints, available statuses, payload structure, key fields, pagination mechanism, and scraping risks.
 - [ ] **1.3 EEPP Client**: Implement async extractor for `empleospublicos.cl` (Status: postulacion/evaluacion).
-- [ ] **1.4 Processing**: Implement `fingerprint` V1 logic (title + institution + region + salary).
-- [ ] **1.5 Loading**: Implement Upsert logic in PostgreSQL (Neon) using `ON CONFLICT`.
+- [ ] **1.4 Data Models**: Define Pydantic schemas for validation and SQLAlchemy models for Neon.
+- [ ] **1.5 Processing**: Implement `fingerprint` V1 logic (title + institution + region + salary).
+- [ ] **1.6 Loading**: Implement Upsert logic in PostgreSQL (Neon) using `ON CONFLICT`.
 
 ### ⏳ Sprint 2: TEEE Integration & Tracking
 - [ ] **2.1 TEEE Client**: Implement async extractor for `trabajaenelestado.cl`.
