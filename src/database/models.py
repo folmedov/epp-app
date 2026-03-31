@@ -1,43 +1,59 @@
-"""SQLAlchemy 2.0 models for persistence.
+"""SQLAlchemy 2.0 models for job offer persistence.
 
-Defines the `JobOffer` model mapping to a Postgres table with JSONB
-audit column and a unique constraint on `fingerprint` to enforce
-idempotency.
+The models in this module define the first canonical database contract used by
+the ETL pipeline. They are intentionally aligned with the V1 data model from
+the architecture and sprint documentation.
 """
+
 from __future__ import annotations
 
-from sqlalchemy import Column, DateTime, Integer, String, UniqueConstraint, func
-from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import declarative_base
+from datetime import datetime
+from decimal import Decimal
+from typing import Any
+from uuid import UUID, uuid4
+
+from sqlalchemy import DateTime, Numeric, String, func
+from sqlalchemy.dialects.postgresql import JSONB, UUID as PGUUID
+from sqlalchemy.ext.asyncio import AsyncAttrs
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
-Base = declarative_base()
+class Base(AsyncAttrs, DeclarativeBase):
+	"""Base class for async SQLAlchemy ORM models."""
 
 
 class JobOffer(Base):
-    """ORM model for a job offer.
+	"""ORM model for the canonical job offers table."""
 
-    - `fingerprint` is unique and used to ensure idempotent upserts.
-    - `json_raw` stores the original API response as JSONB for auditing.
-    - `sueldo_bruto` stored as `Integer` (CLP) by default.
-    """
+	__tablename__ = "job_offers"
 
-    __tablename__ = "job_offers"
-    __table_args__ = (UniqueConstraint("fingerprint", name="uq_job_offers_fingerprint"),)
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    fingerprint = Column(String(64), nullable=False, index=True)
-    source = Column(String(64), nullable=False)
-    source_id = Column(String(128), nullable=False)
-    title = Column(String(512), nullable=False)
-    sueldo_bruto = Column(Integer, nullable=True)
-    status = Column(String(32), nullable=False, default="active")
-    json_raw = Column(JSONB, nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
-
-    def __repr__(self) -> str:  # pragma: no cover - simple repr
-        return f"<JobOffer id={self.id} fingerprint={self.fingerprint} status={self.status}>"
+	id: Mapped[UUID] = mapped_column(
+		PGUUID(as_uuid=True),
+		primary_key=True,
+		default=uuid4,
+	)
+	fingerprint: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+	external_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+	source: Mapped[str] = mapped_column(String(32), nullable=False)
+	title: Mapped[str] = mapped_column(String(512), nullable=False)
+	institution: Mapped[str] = mapped_column(String(512), nullable=False)
+	salary_bruto: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+	state: Mapped[str] = mapped_column(String(32), nullable=False)
+	region: Mapped[str | None] = mapped_column(String(255), nullable=True)
+	city: Mapped[str | None] = mapped_column(String(255), nullable=True)
+	url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+	raw_data: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+	created_at: Mapped[datetime] = mapped_column(
+		DateTime(timezone=True),
+		server_default=func.now(),
+		nullable=False,
+	)
+	updated_at: Mapped[datetime] = mapped_column(
+		DateTime(timezone=True),
+		server_default=func.now(),
+		onupdate=func.now(),
+		nullable=False,
+	)
 
 
 __all__ = ["Base", "JobOffer"]

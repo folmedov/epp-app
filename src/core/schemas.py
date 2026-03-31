@@ -5,10 +5,12 @@ API clients, processing code and persistence layers.
 """
 from __future__ import annotations
 
+from decimal import Decimal
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any
+from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class JobOfferSchema(BaseModel):
@@ -18,21 +20,25 @@ class JobOfferSchema(BaseModel):
     applicable to keep mapping straightforward.
     """
 
-    id: Optional[int] = None
+    id: UUID | None = None
+    fingerprint: str | None = None
+    external_id: str | None = None
     source: str
-    source_id: str
     title: str
-    description: Optional[str] = None
-    sueldo_bruto: Optional[int] = Field(
-        None, description="Sueldo bruto en CLP (entero), null si no aplica"
+    institution: str
+    salary_bruto: Decimal | None = Field(
+        None,
+        description="Monthly gross salary in CLP, null when not available",
     )
-    fingerprint: str
-    status: str = Field("active", description="Lifecycle state of the offer")
-    json_raw: Dict[str, Any]
-    created_at: Optional[datetime] = None
-    updated_at: Optional[datetime] = None
+    state: str
+    region: str | None = None
+    city: str | None = None
+    url: str | None = None
+    raw_data: dict[str, Any]
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
 
-    model_config = {"extra": "forbid"}
+    model_config = ConfigDict(extra="forbid", from_attributes=True)
 
 
 __all__ = ["JobOfferSchema"]

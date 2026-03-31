@@ -6,9 +6,10 @@
 - [x] **1.1 Project Setup**: Initialize folder structure and environment variables (`.env`, `config.py`).
 - [x] **1.2 EEPP API Discovery**: Identify endpoints, available statuses, payload structure, key fields, pagination mechanism, and scraping risks.
 - [x] **1.3 EEPP Client**: Implement async extractor for `empleospublicos.cl` (Status: postulacion/evaluacion).
-- [ ] **1.4 Data Models**: Define Pydantic schemas for validation and SQLAlchemy models for Neon.
-- [ ] **1.5 Processing**: Implement `fingerprint` V1 logic (title + institution + region + salary).
-- [ ] **1.6 Loading**: Implement Upsert logic in PostgreSQL (Neon) using `ON CONFLICT`.
+- [x] **1.4 Data Models**: Define Pydantic schemas for validation and SQLAlchemy models for Neon.
+- [ ] **1.5 Database Connectivity**: Configure async SQLAlchemy engine, session management, and Neon connection validation.
+- [ ] **1.6 Processing**: Implement `fingerprint` V1 logic (title + institution + region + salary).
+- [ ] **1.7 Loading**: Implement Upsert logic in PostgreSQL (Neon) using `ON CONFLICT`.
 
 ### ⏳ Sprint 2: TEEE Integration & Tracking
 - [ ] **2.1 TEEE Client**: Implement async extractor for `trabajaenelestado.cl`.
