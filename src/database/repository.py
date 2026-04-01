@@ -37,11 +37,16 @@ async def upsert_job_offers(
     if not valid:
         return 0
 
-    rows = []
+    # Deduplicate by fingerprint — keep last occurrence (same as DB would keep on conflict).
+    seen: dict[str, dict] = {}
     for offer in valid:
         row = offer.model_dump(exclude={"id", "created_at", "updated_at"})
         row["id"] = uuid4()
-        rows.append(row)
+        seen[offer.fingerprint] = row  # type: ignore[index]
+    rows = list(seen.values())
+    deduped = len(valid) - len(rows)
+    if deduped:
+        LOGGER.warning("Removed %d duplicate fingerprint(s) from batch", deduped)
 
     stmt = insert(JobOffer).values(rows)
     stmt = stmt.on_conflict_do_update(

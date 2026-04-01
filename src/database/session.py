@@ -20,11 +20,25 @@ from src.core.config import settings
 LOGGER = logging.getLogger(__name__)
 
 
-engine: AsyncEngine = create_async_engine(
-    settings.DATABASE_URL,
-    echo=False,
-    future=True,
-)
+def _build_engine() -> AsyncEngine:
+    """Build the async engine, stripping asyncpg-incompatible query params.
+
+    asyncpg does not accept ``sslmode`` or ``channel_binding`` as URL query
+    parameters. SSL is enabled instead via ``connect_args``.
+    """
+    from urllib.parse import urlparse, urlunparse, urlencode, parse_qs
+
+    parsed = urlparse(settings.DATABASE_URL)
+    qs = parse_qs(parsed.query)
+    needs_ssl = qs.pop("sslmode", [None])[0] in ("require", "verify-ca", "verify-full")
+    qs.pop("channel_binding", None)
+    clean_url = urlunparse(parsed._replace(query=urlencode(qs, doseq=True)))
+
+    connect_args: dict = {"ssl": True} if needs_ssl else {}
+    return create_async_engine(clean_url, echo=False, future=True, connect_args=connect_args)
+
+
+engine: AsyncEngine = _build_engine()
 
 SessionFactory: async_sessionmaker[AsyncSession] = async_sessionmaker(
     bind=engine,
