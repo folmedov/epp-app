@@ -20,6 +20,18 @@ job_tracker/
 │   │   └── teee_client.py       # Scraper/Client for Trabaja en el Estado
 │   ├── processing/
 │   │   └── transformers.py      # Fingerprinting (MD5) and cleaning logic
+│   ├── web/
+│   │   ├── app.py               # FastAPI application factory
+│   │   ├── routers/
+│   │   │   └── offers.py        # Routes: list, filter
+│   │   ├── queries.py           # Async DB query functions (filter by region/city/institution)
+│   │   ├── templates/
+│   │   │   ├── base.html        # Base layout
+│   │   │   ├── offers.html      # Offers list page (full page)
+│   │   │   └── partials/
+│   │   │       └── offers_table.html  # HTMX partial (re-rendered on filter)
+│   │   └── static/
+│   │       └── style.css        # Minimal custom styles
 │   └── main.py                  # Entry point (Orchestrator)
 ├── requirement.md               # Business logic and functional specs
 ├── architecture.md              # This file
@@ -83,3 +95,21 @@ Extraction depends on URL domain and structure:
 - The URL field is **not stable** across state transitions for EEPP records (the `i` param stays the same but the path changes from `convpostularavisoTrabajo.aspx` to `convFicha.aspx`).
 - The fingerprint is the deduplication key within and across sources.
 - Cross-source linking (EEPP ↔ TEEE) will be addressed in sprint 2.2 using `external_id` once TEEE structure is known.
+
+## 3. Web Interface
+
+**Stack**: FastAPI + Jinja2 + HTMX
+
+- **FastAPI** handles routing and DB session injection via `Depends(get_session)`.
+- **Jinja2** renders server-side HTML templates — no separate JS build step.
+- **HTMX** handles dynamic filter updates by swapping the `offers_table.html` partial on every filter change (`hx-get`, `hx-trigger="change"`, `hx-target="#results"`).
+
+**Filter behavior**:
+- Filters (`region`, `city`, `institution`) are optional query params on `GET /offers/partial`.
+- Dropdown values are populated from `SELECT DISTINCT` queries on the `job_offers` table.
+- No authentication required — read-only public interface.
+
+**Run the web server**:
+```bash
+PYTHONPATH=. uv run uvicorn src.web.app:app --reload
+```

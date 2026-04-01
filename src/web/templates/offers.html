@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+
+{% block title %}Ofertas — Job Tracker{% endblock %}
+
+{% block content %}
+<section class="filters">
+    <form>
+        <label for="region">Región</label>
+        <select id="region" name="region">
+            <option value="">Todas</option>
+            {% for r in regions %}
+            <option value="{{ r }}">{{ r }}</option>
+            {% endfor %}
+        </select>
+
+        <label for="city">Ciudad</label>
+        <select id="city" name="city">
+            <option value="">Todas</option>
+            {% for c in cities %}
+            <option value="{{ c }}">{{ c }}</option>
+            {% endfor %}
+        </select>
+
+        <label for="institution">Institución</label>
+        <select id="institution" name="institution">
+            <option value="">Todas</option>
+            {% for i in institutions %}
+            <option value="{{ i }}">{{ i }}</option>
+            {% endfor %}
+        </select>
+    </form>
+</section>
+
+<section id="results">
+    {% include "partials/offers_table.html" %}
+</section>
+{% endblock %}
