@@ -5,6 +5,14 @@
 {% block content %}
 <section class="filters">
     <form id="filter-form">
+        <div class="search-row">
+            <label for="q">Buscar</label>
+            <input id="q" name="q" type="search" placeholder="Buscar título o palabra clave" class="filter-field search-field" autocomplete="off"
+                hx-get="/offers/partial?sort={{ sort|default('') }}&sort_dir={{ sort_dir|default('desc') }}"
+                hx-target="#results"
+                hx-trigger="keyup changed delay:500ms"
+                hx-include="#filter-form .filter-field">
+        </div>
         <label for="region">Región
             <select id="region" name="region" class="filter-field"
                 hx-get="/offers/partial?sort={{ sort|default('') }}&sort_dir={{ sort_dir|default('desc') }}"

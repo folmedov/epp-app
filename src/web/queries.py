@@ -49,6 +49,7 @@ async def get_offers(
     region: Optional[str] = None,
     city: Optional[str] = None,
     institution: Optional[str] = None,
+    q: Optional[str] = None,
     state: Optional[str] = None,
     page: int = 1,
     per_page: int = 50,
@@ -101,6 +102,11 @@ async def get_offers(
         stmt = stmt.where(JobOffer.city == city)
     if institution:
         stmt = stmt.where(JobOffer.institution == institution)
+    if q:
+        # Case-insensitive substring match on title — use Postgres `unaccent()`
+        # so searches ignore diacritics (e.g. 'analis' matches 'análisis').
+        # NOTE: this requires the `unaccent` extension enabled in Postgres.
+        stmt = stmt.where(func.unaccent(JobOffer.title).ilike(func.unaccent(f"%{q}%")))
     if state:
         stmt = stmt.where(JobOffer.state == state)
 
@@ -112,6 +118,8 @@ async def get_offers(
         count_stmt = count_stmt.where(JobOffer.city == city)
     if institution:
         count_stmt = count_stmt.where(JobOffer.institution == institution)
+    if q:
+        count_stmt = count_stmt.where(func.unaccent(JobOffer.title).ilike(func.unaccent(f"%{q}%")))
     if state:
         count_stmt = count_stmt.where(JobOffer.state == state)
 
