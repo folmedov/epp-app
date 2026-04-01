@@ -42,6 +42,25 @@ _=1774729833623
     "esPrimerEmpleo": false,
     "TipoTxt": "Empleos P&uacute;blicos",
     "Priorizado": "False"
+},
+{
+    "Ministerio": "Ministerio de Hacienda",
+    "Institución / Entidad": "Comisión para el Mercado Financiero / Comisión para el Mercado Financiero",
+    "Cargo": "Director(a) Dirección General Jurídica",
+    "Nº de Vacantes": "0",
+    "Área de Trabajo": "",
+    "Región": "Región Metropolitana de Santiago",
+    "Ciudad": "Santiago",
+    "Tipo de Vacante": "",
+    "Renta Bruta": "0,00",
+    "Fecha Inicio": "24/03/2026 0:00:00",
+    "Fecha Cierre Convocatoria": "07/04/2026 23:59:00",
+    "url": "https://www.trabajando.cl/trabajo-empleo/comisi%C3%B3n%20para%20el%20mercado%20financiero/trabajo/6049069-director-a-direccion-general-juridica",
+    "Tipo postulacion": "",
+    "Cargo Profesional": "",
+    "esPrimerEmpleo": false,
+    "TipoTxt": "Comisi&oacute;n Mercado Financiero",
+    "Priorizado": "False"
 }
 ...
 ]
@@ -96,3 +115,33 @@ _=1774730540565
 ##  Scraping Risks
 * The endpoint is public and does not require authentication, but it is not an official API, so it may change without notice. 
 * The data is updated regularly, but there is no guarantee of stability, so we should implement error handling and monitoring to detect any changes in the structure or availability of the endpoint.
+## Additional Findings (post-discovery analysis)
+
+### EEPP as Aggregator
+The portal does not only publish direct EEPP convocatorias. The `TipoTxt` field reveals the actual origin:
+
+| TipoTxt (HTML-unescaped) | Count (postulacion) | Count (evaluacion) | source value |
+|:---|:---|:---|:---|
+| `Empleos Públicos` / `Empleos Públicos Evaluación` | 207 | 624 | `EEPP` |
+| `JUNJI` | 16 | 0 | `JUNJI` |
+| `Invitación a Postular` | 6 | 0 | `EXTERNAL` |
+| `DIFUSION` | 3 | 0 | `DIFUSION` |
+| `Comisión Mercado Financiero` | 1 | 0 | `CMF` |
+
+All evaluacion records are direct EEPP. Non-EEPP records only appear in postulacion.
+
+### URL Instability Across States
+The URL for the same offer changes depending on its state:
+- **postulacion**: `convpostularavisoTrabajo.aspx?i=<id>`
+- **evaluacion**: `convFicha.aspx?i=<id>`
+
+The `?i=` query parameter is the stable identifier. The URL itself is not a reliable identity key.
+
+### External ID Extraction per Domain
+
+| Domain | URL pattern | Extraction rule |
+|:---|:---|:---|
+| `empleospublicos.cl` | `?i=139281` | `i` query param |
+| `junji.myfront.cl` | `/oferta-de-empleo/19560/slug` | segment at index 2 of path |
+| `*.trabajando.cl` | `/trabajo/6049750-slug` | numeric prefix before first `-` |
+| `educacionpublica.gob.cl`, `renca.cl`, etc. | no stable ID | `None` |

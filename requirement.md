@@ -8,7 +8,7 @@
 - [x] **1.3 EEPP Client**: Implement async extractor for `empleospublicos.cl` (Status: postulacion/evaluacion).
 - [x] **1.4 Data Models**: Define Pydantic schemas for validation and SQLAlchemy models for Neon.
 - [x] **1.5 Database Connectivity**: Configure async SQLAlchemy engine, session management, and Neon connection validation.
-- [ ] **1.6 Processing**: Implement `fingerprint` V1 logic (title + institution + region + salary).
+- [x] **1.6 Processing**: Implement `external_id` extraction and `fingerprint` V1 logic per source (see `architecture.md` for rules). Update `EEPPClient` to populate `external_id` and `source` from `TipoTxt`.
 - [ ] **1.7 Loading**: Implement Upsert logic in PostgreSQL (Neon) using `ON CONFLICT`.
 
 ### ⏳ Sprint 2: TEEE Integration & Tracking

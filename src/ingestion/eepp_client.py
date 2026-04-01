@@ -8,12 +8,23 @@ the original payload for later processing stages.
 from __future__ import annotations
 
 import asyncio
+import html
 import logging
 from typing import Any
 
 import httpx
 
 from src.core.config import settings
+from src.processing.transformers import compute_fingerprint, extract_external_id, parse_salary
+
+_TIPOTXT_TO_SOURCE: dict[str, str] = {
+    "Empleos Públicos": "EEPP",
+    "Empleos Públicos Evaluación": "EEPP",
+    "JUNJI": "JUNJI",
+    "Invitación a Postular": "EXTERNAL",
+    "DIFUSION": "DIFUSION",
+    "Comisión Mercado Financiero": "CMF",
+}
 
 
 LOGGER = logging.getLogger(__name__)
@@ -32,7 +43,6 @@ class EEPPClient:
 
 	POSTULACION_URL = "https://www.empleospublicos.cl/data/convocatorias2_nueva.txt"
 	EVALUACION_URL = "https://www.empleospublicos.cl/data/convocatorias_evaluacion_nueva.txt"
-	SOURCE_NAME = "EEPP"
 
 	def __init__(
 		self,
@@ -98,17 +108,36 @@ class EEPPClient:
 		return normalized_offers
 
 	def _normalize_offer(self, raw_offer: dict[str, Any], state: str) -> dict[str, Any]:
-		"""Build the minimal V1 internal representation for an EEPP offer."""
+		"""Build the V1 internal representation for an EEPP offer."""
+
+		tipo_txt = html.unescape(raw_offer.get("TipoTxt") or "")
+		source = _TIPOTXT_TO_SOURCE.get(tipo_txt, "EEPP")
+
+		url: str = raw_offer.get("url") or ""
+		title: str | None = raw_offer.get("Cargo")
+		institution: str | None = raw_offer.get("Institución / Entidad")
+		region: str | None = raw_offer.get("Región")
+
+		external_id = extract_external_id(url)
+		fingerprint = compute_fingerprint(
+			source,
+			external_id,
+			title=title or "",
+			institution=institution or "",
+			region=region,
+		)
 
 		return {
-			"source": self.SOURCE_NAME,
+			"source": source,
 			"state": state,
-			"title": raw_offer.get("Cargo"),
-			"institution": raw_offer.get("Institución / Entidad"),
-			"region": raw_offer.get("Región"),
+			"title": title,
+			"institution": institution,
+			"region": region,
 			"city": raw_offer.get("Ciudad"),
-			"url": raw_offer.get("url"),
-			"salary_raw": raw_offer.get("Renta Bruta"),
+			"url": url or None,
+		"salary_bruto": parse_salary(raw_offer.get("Renta Bruta")),
+			"external_id": external_id,
+			"fingerprint": fingerprint,
 			"raw_data": raw_offer,
 		}
 
