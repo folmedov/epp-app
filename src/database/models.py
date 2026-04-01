@@ -32,7 +32,7 @@ class JobOffer(Base):
 		primary_key=True,
 		default=uuid4,
 	)
-	fingerprint: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+	fingerprint: Mapped[str | None] = mapped_column(String(32), nullable=True, unique=True, index=True)
 	external_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
 	source: Mapped[str] = mapped_column(String(32), nullable=False)
 	title: Mapped[str] = mapped_column(String(512), nullable=False)
