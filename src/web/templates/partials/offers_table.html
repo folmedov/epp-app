@@ -1,13 +1,42 @@
 {% if offers %}
+<div class="results-summary-top">
+    {% if total is defined %}
+    <p>Resultados: {{ total }} — Página {{ page }} de {{ total_pages if total_pages else 1 }}</p>
+    {% endif %}
+</div>
 <table>
     <thead>
         <tr>
-            <th>Cargo</th>
-            <th>Institución</th>
-            <th>Región</th>
-            <th>Ciudad</th>
-            <th>Sueldo Bruto</th>
-            <th>Estado</th>
+            <th>
+                <button class="sort" hx-get="/offers/partial?sort=title&sort_dir={{ 'desc' if sort=='title' and sort_dir=='asc' else 'asc' }}" hx-target="#results" hx-include="#filter-form .filter-field">
+                    Cargo {% if sort=='title' %}{{ '↑' if sort_dir=='asc' else '↓' }}{% endif %}
+                </button>
+            </th>
+            <th>
+                <button class="sort" hx-get="/offers/partial?sort=institution&sort_dir={{ 'desc' if sort=='institution' and sort_dir=='asc' else 'asc' }}" hx-target="#results" hx-include="#filter-form .filter-field">
+                    Institución {% if sort=='institution' %}{{ '↑' if sort_dir=='asc' else '↓' }}{% endif %}
+                </button>
+            </th>
+            <th>
+                <button class="sort" hx-get="/offers/partial?sort=region&sort_dir={{ 'desc' if sort=='region' and sort_dir=='asc' else 'asc' }}" hx-target="#results" hx-include="#filter-form .filter-field">
+                    Región {% if sort=='region' %}{{ '↑' if sort_dir=='asc' else '↓' }}{% endif %}
+                </button>
+            </th>
+            <th>
+                <button class="sort" hx-get="/offers/partial?sort=city&sort_dir={{ 'desc' if sort=='city' and sort_dir=='asc' else 'asc' }}" hx-target="#results" hx-include="#filter-form .filter-field">
+                    Ciudad {% if sort=='city' %}{{ '↑' if sort_dir=='asc' else '↓' }}{% endif %}
+                </button>
+            </th>
+            <th>
+                <button class="sort" hx-get="/offers/partial?sort=salary&sort_dir={{ 'desc' if sort=='salary' and sort_dir=='asc' else 'asc' }}" hx-target="#results" hx-include="#filter-form .filter-field">
+                    Sueldo Bruto {% if sort=='salary' %}{{ '↑' if sort_dir=='asc' else '↓' }}{% endif %}
+                </button>
+            </th>
+            <th>
+                <button class="sort" hx-get="/offers/partial?sort=state&sort_dir={{ 'desc' if sort=='state' and sort_dir=='asc' else 'asc' }}" hx-target="#results" hx-include="#filter-form .filter-field">
+                    Estado {% if sort=='state' %}{{ '↑' if sort_dir=='asc' else '↓' }}{% endif %}
+                </button>
+            </th>
             <th>Enlace</th>
         </tr>
     </thead>
@@ -18,7 +47,7 @@
             <td>{{ offer.institution }}</td>
             <td>{{ offer.region }}</td>
             <td>{{ offer.city }}</td>
-            <td>{{ offer.salary_bruto if offer.salary_bruto else "—" }}</td>
+            <td>{{ offer.salary_bruto | clp }}</td>
             <td>{{ offer.state }}</td>
             <td><a href="{{ offer.url }}" target="_blank" rel="noopener">Ver</a></td>
         </tr>
@@ -28,3 +57,39 @@
 {% else %}
 <p>No se encontraron ofertas.</p>
 {% endif %}
+
+<nav class="pager">
+    <div>
+        {% set start = (page - 1) * per_page + 1 if total and page >= 1 else 0 %}
+        {% set end = start + (offers|length) - 1 if offers else 0 %}
+        <span class="summary">Mostrando {{ start }}–{{ end }} de {{ total }} resultados</span>
+
+        {% if page > 1 %}
+            <button
+                hx-get="/offers/partial?page=1&per_page={{ per_page }}&sort={{ sort|default('') }}&sort_dir={{ sort_dir|default('desc') }}"
+                hx-target="#results"
+                hx-include="#filter-form"
+                class="btn">Primera</button>
+
+            <button
+                hx-get="/offers/partial?page={{ page - 1 }}&per_page={{ per_page }}&sort={{ sort|default('') }}&sort_dir={{ sort_dir|default('desc') }}"
+                hx-target="#results"
+                hx-include="#filter-form"
+                class="btn">Anterior</button>
+        {% endif %}
+
+        {% if has_next %}
+            <button
+                hx-get="/offers/partial?page={{ page + 1 }}&per_page={{ per_page }}&sort={{ sort|default('') }}&sort_dir={{ sort_dir|default('desc') }}"
+                hx-target="#results"
+                hx-include="#filter-form"
+                class="btn">Siguiente</button>
+
+            <button
+                hx-get="/offers/partial?page={{ total_pages }}&per_page={{ per_page }}&sort={{ sort|default('') }}&sort_dir={{ sort_dir|default('desc') }}"
+                hx-target="#results"
+                hx-include="#filter-form"
+                class="btn">Última</button>
+        {% endif %}
+    </div>
+</nav>

@@ -1,0 +1,132 @@
+"""Async query functions for the web interface."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from decimal import Decimal
+from typing import Optional
+import math
+from sqlalchemy import desc, asc
+
+from sqlalchemy import select, func
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.database.models import JobOffer
+
+
+@dataclass
+class OfferRow:
+    """Lightweight read model for template rendering."""
+
+    title: str
+    institution: str
+    region: str | None
+    city: str | None
+    salary_bruto: Decimal | None
+    state: str
+    url: str | None
+
+
+async def get_filter_options(session: AsyncSession) -> dict[str, list[str]]:
+    """Return distinct non-null values for each filter dropdown."""
+    result: dict[str, list[str]] = {}
+    for col, key in (
+        (JobOffer.region, "regions"),
+        (JobOffer.city, "cities"),
+        (JobOffer.institution, "institutions"),
+        (JobOffer.state, "states"),
+    ):
+        rows = await session.execute(
+            select(col).where(col.isnot(None)).distinct().order_by(col)
+        )
+        result[key] = [r[0] for r in rows]
+    return result
+
+
+async def get_offers(
+    session: AsyncSession,
+    *,
+    region: Optional[str] = None,
+    city: Optional[str] = None,
+    institution: Optional[str] = None,
+    state: Optional[str] = None,
+    page: int = 1,
+    per_page: int = 50,
+    sort: Optional[str] = None,
+    sort_dir: str = "desc",
+) -> tuple[list[OfferRow], bool, int, int]:
+    """Query job offers with optional filters and simple page-based pagination.
+
+    Returns a tuple `(offers, has_next)` where `has_next` indicates whether there
+    may be more results after the returned page. Internally we request
+    `per_page + 1` rows to determine `has_next`.
+    """
+    # Enforce sane bounds
+    per_page = max(1, min(per_page, 500))
+    page = max(1, page)
+
+    stmt = select(
+        JobOffer.title,
+        JobOffer.institution,
+        JobOffer.region,
+        JobOffer.city,
+        JobOffer.salary_bruto,
+        JobOffer.state,
+        JobOffer.url,
+    )
+
+    # Sorting: allow ordering by a whitelist of columns
+    ALLOWED_SORTS = {
+        "title": JobOffer.title,
+        "institution": JobOffer.institution,
+        "region": JobOffer.region,
+        "city": JobOffer.city,
+        "salary": JobOffer.salary_bruto,
+        "state": JobOffer.state,
+        "created_at": JobOffer.created_at,
+    }
+
+    if sort and sort in ALLOWED_SORTS:
+        col = ALLOWED_SORTS[sort]
+        if (sort_dir or "").lower() == "asc":
+            stmt = stmt.order_by(asc(col), JobOffer.id)
+        else:
+            stmt = stmt.order_by(desc(col), JobOffer.id)
+    else:
+        stmt = stmt.order_by(JobOffer.created_at.desc(), JobOffer.id)
+
+    if region:
+        stmt = stmt.where(JobOffer.region == region)
+    if city:
+        stmt = stmt.where(JobOffer.city == city)
+    if institution:
+        stmt = stmt.where(JobOffer.institution == institution)
+    if state:
+        stmt = stmt.where(JobOffer.state == state)
+
+    # Count total matching rows for pager info
+    count_stmt = select(func.count()).select_from(JobOffer)
+    if region:
+        count_stmt = count_stmt.where(JobOffer.region == region)
+    if city:
+        count_stmt = count_stmt.where(JobOffer.city == city)
+    if institution:
+        count_stmt = count_stmt.where(JobOffer.institution == institution)
+    if state:
+        count_stmt = count_stmt.where(JobOffer.state == state)
+
+    total = await session.scalar(count_stmt)
+    total = int(total or 0)
+
+    limit = per_page + 1
+    offset = (page - 1) * per_page
+    stmt = stmt.limit(limit).offset(offset)
+
+    result = await session.execute(stmt)
+    rows = result.all()
+    offers_all = [OfferRow(*row) for row in rows]
+    has_next = len(offers_all) > per_page
+    offers = offers_all[:per_page]
+
+    total_pages = math.ceil(total / per_page) if total > 0 else 0
+    return offers, has_next, total, total_pages
