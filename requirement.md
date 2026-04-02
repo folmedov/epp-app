@@ -26,9 +26,11 @@
 - [x] **2.11 Text search**: The offers list MUST support text search on `title` using SQL LIKE `%term%` (case-insensitive; use `ILIKE` for Postgres). Query param: `q`.
 
 ### ⏳ Sprint 3: TEEE Integration & Tracking
-- [ ] **3.1 TEEE Client**: Implement async extractor for `trabajaenelestado.cl`.
-- [ ] **3.2 Matching Logic**: Link TEEE records with EEPP via `fingerprint` and `ID Conv`.
-- [ ] **3.3 State Observer**: Update records to "finalizada" if they disappear from EEPP but exist in TEEE.
+- [x] **3.1 Database Refactor**: Introduce `job_offer_sources` to store per-source raw payloads and metadata (details: docs/sprints/sprint_3_database_refactor.md)
+- [ ] **3.2 TEEE Client**: Implement async extractor for `trabajaenelestado.cl` and mapping to the canonical schema (details: docs/sprints/sprint_3_teee_client.md)
+- [ ] **3.3 Matching & Upsert**: Extend upsert flow to support multi-source ingestion and link `job_offer_sources` to canonical `job_offers` (details: docs/sprints/sprint_3_matching_upsert.md)
+- [ ] **3.4 State Observer / Reconciliation**: Add a periodic reconciliation job to compute canonical `state` from all sources (details: docs/sprints/sprint_3_reconciliation.md)
+- [ ] **3.5 Tests & Migration**: Add migration/backfill tooling and unit/integration tests for mapping, upsert, and reconciliation (details: docs/sprints/sprint_3_tests_migration.md)
 
 ### 📊 Sprint 4: Analysis & Reporting
 - [ ] **4.1 Analytics Views**: Create SQL views in Postgres for salary averages and regional demand.
