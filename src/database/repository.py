@@ -38,31 +38,43 @@ async def upsert_job_offers(
         return 0
 
     # Deduplicate by fingerprint — keep last occurrence (same as DB would keep on conflict).
+    # Only include columns that exist on the JobOffer ORM model (schema may contain
+    # per-source fields such as `external_id` and `raw_data` which live in
+    # `job_offer_sources`).
+    allowed_cols = {c.name for c in JobOffer.__table__.columns}
     seen: dict[str, dict] = {}
     for offer in valid:
         row = offer.model_dump(exclude={"id", "created_at", "updated_at"})
         row["id"] = uuid4()
-        seen[offer.fingerprint] = row  # type: ignore[index]
+        filtered = {k: v for k, v in row.items() if k in allowed_cols}
+        seen[offer.fingerprint] = filtered  # type: ignore[index]
     rows = list(seen.values())
     deduped = len(valid) - len(rows)
     if deduped:
         LOGGER.warning("Removed %d duplicate fingerprint(s) from batch", deduped)
 
-    stmt = insert(JobOffer).values(rows)
-    stmt = stmt.on_conflict_do_update(
-        index_elements=["fingerprint"],
-        set_={
-            "state": stmt.excluded.state,
-            "url": stmt.excluded.url,
-            "salary_bruto": stmt.excluded.salary_bruto,
-            "raw_data": stmt.excluded.raw_data,
-            "updated_at": func.now(),
-        },
-    )
+    # asyncpg uses a signed Int16 for the Bind message param count, giving a
+    # practical maximum of 32 767 parameters per statement.
+    # With 10 columns per row the safe chunk size is 32767 // 10 = 3276.
+    _CHUNK = 3000
+    total_rows = 0
+    for offset in range(0, len(rows), _CHUNK):
+        chunk = rows[offset : offset + _CHUNK]
+        stmt = insert(JobOffer).values(chunk)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["fingerprint"],
+            set_={
+                "state": stmt.excluded.state,
+                "url": stmt.excluded.url,
+                "salary_bruto": stmt.excluded.salary_bruto,
+                "updated_at": func.now(),
+            },
+        )
+        result = await session.execute(stmt)
+        total_rows += result.rowcount
 
-    result = await session.execute(stmt)
     await session.flush()
-    return result.rowcount
+    return total_rows
 
 
 __all__ = ["upsert_job_offers"]
