@@ -49,9 +49,8 @@ Primary canonical table: `job_offers` (summary)
 |Column|Type|Description|
 |:---|:---|:---|
 |id|UUID|Primary Key (Default: uuid_generate_v4())|
-|fingerprint|String(32)|Unique Index. Primary deduplication key for canonical offers (see Fingerprint Strategy).|
-|external_id|String|Canonical external identifier when applicable (may be null). Used for cross-source linking when available.|
-|source|String|Canonical source for this record (e.g. `EEPP`). This represents the source that provided the canonical/representative fields; details for each ingest are in `job_offer_sources`.
+|fingerprint|String(32)|Unique Index. Primary deduplication key for canonical offers (see Fingerprint Strategy). After canonicalization this column holds the canonical fingerprint or cross-source key used for deduplication and linking.
+|source|String|Canonical/representative source for this record (e.g. `EEPP`). Indicates which provider's data is being presented as the canonical values; per-ingest provenance lives in `job_offer_sources`.
 |title|String|Job position name (Cargo). Normalized for display/search.
 |institution|String|Name of the public institution.
 |salary_bruto|Numeric|Monthly gross salary (Nullable when not published).
@@ -62,7 +61,7 @@ Primary canonical table: `job_offers` (summary)
 |created_at|Timestamp|Automatic record creation time (UTC).
 |updated_at|Timestamp|Time of last canonical update (UTC).
 
-Note: the per-ingest `raw_data` JSONB column previously stored on `job_offers` has been moved to `job_offer_sources` to support multiple source rows per canonical offer and enable history/audit.
+Note: the per-ingest `raw_data` JSONB column previously stored on `job_offers` has been moved to `job_offer_sources` to support multiple source rows per canonical offer and enable history/audit. Following Sprint 3.4, the `external_id` attribute was also moved out of `job_offers` and is now stored on `job_offer_sources`; canonical linking is performed via fingerprints / cross-source keys and the `job_offers.fingerprint` column (or computed at upsert time).
 
 ### Source Values
 
@@ -81,7 +80,7 @@ Mapping used for common `source` values:
 
 ### External ID Rules
 
-Extraction depends on URL domain and structure. These rules feed `external_id` on `job_offer_sources` and — when applicable — the canonical `job_offers.external_id` used for cross-source linking.
+Extraction depends on URL domain and structure. These rules feed `external_id` on `job_offer_sources`. Cross-source linking is performed using computed keys (for example a `cross_source_key` derived from normalized external IDs or the canonical fingerprint); the canonical linking key is persisted on `job_offers.fingerprint` or otherwise computed by the upsert flow.
 
 | Domain | Pattern | Extraction |
 |:---|:---|:---|

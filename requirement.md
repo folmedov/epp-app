@@ -29,9 +29,10 @@
 - [x] **3.1 Database Refactor**: Introduce `job_offer_sources` to store per-source raw payloads and metadata (details: docs/sprints/sprint_3_1_database_refactor.md)
 - [x] **3.2 TEEE Client**: Implement async extractor for `trabajaenelestado.cl` and mapping to the canonical schema (details: docs/sprints/sprint_3_2_teee_client.md)
 - [x] **3.3 Alembic Integration**: Set up Alembic for database migrations (details: sprint_3_3_alembic_integration.md)
-- [ ] **3.4 Matching & Upsert**: Extend upsert flow to support multi-source ingestion and link `job_offer_sources` to canonical `job_offers` (details: docs/sprints/sprint_3_3_matching_upsert.md)
-- [ ] **3.5 State Observer / Reconciliation**: Add a periodic reconciliation job to compute canonical `state` from all sources (details: docs/sprints/sprint_3_4_reconciliation.md)
-- [ ] **3.6 Tests & Migration**: Add migration/backfill tooling and unit/integration tests for mapping, upsert, and reconciliation (details: docs/sprints/sprint_3_5_tests_migration.md)
+- [x] **3.4 Refactor `job_offers`**: Remove `external_id` from `job_offers` table (details: docs/sprints/sprint_3_4_job_offers_refactor.md)
+- [ ] **3.5 Matching & Upsert**: Extend upsert flow to support multi-source ingestion and link `job_offer_sources` to canonical `job_offers` (details: docs/sprints/sprint_3_5_matching_upsert.md)
+- [ ] **3.6 State Observer / Reconciliation**: Add a periodic reconciliation job to compute canonical `state` from all sources (details: docs/sprints/sprint_3_6_reconciliation.md)
+- [ ] **3.7 Tests & Migration**: Add migration/backfill tooling and unit/integration tests for mapping, upsert, and reconciliation (details: docs/sprints/sprint_3_7_tests_migration.md)
 
 ### 📊 Sprint 4: Analysis & Reporting
 - [ ] **4.1 Analytics Views**: Create SQL views in Postgres for salary averages and regional demand.
