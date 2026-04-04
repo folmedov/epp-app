@@ -48,4 +48,22 @@ class JobOfferSchema(BaseModel):
     model_config = ConfigDict(extra="forbid", from_attributes=True)
 
 
-__all__ = ["JobOfferSchema"]
+class JobOfferSourceSchema(BaseModel):
+    """Data transfer object for a per-source ingest record.
+
+    Mirrors the ``job_offer_sources`` ORM model. Used by the repository to
+    validate source rows before insert.
+    """
+
+    id: UUID | None = None
+    job_offer_id: UUID | None = None
+    source: str
+    external_id: str | None = None
+    raw_data: dict[str, Any]
+    original_state: str | None = None
+    ingested_at: datetime | None = None
+
+    model_config = ConfigDict(extra="forbid", from_attributes=True)
+
+
+__all__ = ["JobOfferSchema", "JobOfferSourceSchema"]

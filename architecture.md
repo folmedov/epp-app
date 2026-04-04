@@ -59,8 +59,8 @@ Primary canonical table: `job_offers` (summary)
 |city|String|City or commune.
 |url|String|Representative URL for the current canonical state (note: EEPP URLs may change between states).
 |ministry|String|Ministry or contracting entity (Nullable). Mapped from `Ministerio` in both EEPP and TEEE.
-|start_date|String|Process start date as reported by the source (Nullable), stored as-is (e.g. `"26/01/2023 0:00:00"`).
-|close_date|String|Application close date as reported by the source (Nullable), stored as-is.
+|start_date|Timestamp (no tz)|Process start date (Nullable). Parsed from TEEE source strings (`DD/MM/YYYY H:MM` or `DD/MM/YYYY H:MM:SS`) by `TEEEClient._parse_teee_date()` before storage. ISO 8601 serialization is used in fingerprint computation.
+|close_date|Timestamp (no tz)|Application close date (Nullable). Same parsing rules as `start_date`.
 |conv_type|String|Convocation type code (Nullable). Populated from TEEE's `Tipo Convocatoria` (e.g. `DEE`, `ADP`); `NULL` for EEPP.
 |created_at|Timestamp|Automatic record creation time (UTC).
 |updated_at|Timestamp|Time of last canonical update (UTC).
@@ -107,6 +107,7 @@ When no `external_id` is available, fall back to a composed fingerprint such as 
 
 - The URL field is **not stable** across state transitions for EEPP records (the `i` param stays the same but the path changes between pages). Store representative canonical `url` in `job_offers`; retain original per-ingest URLs in `job_offer_sources.raw_data`.
 - The system maintains both a per-source fingerprint and a cross-source key to enable robust de-duplication and cross-source linking. Cross-source linking and the merge/canonicalization rules are implemented in Sprint 3.
+- **State priority** is enforced at two layers: (1) in-memory dedup within a batch keeps only the highest-priority record per fingerprint; (2) `ON CONFLICT DO UPDATE` uses SQL `CASE` expressions so a lower-priority incoming state (`finalizada`) never overwrites a higher-priority stored state (`postulacion`, `evaluacion`). Priority order: `postulacion (1) > evaluacion (2) > finalizada (3)`. See `src/database/repository.py` (`_STATE_PRIORITY`, `_state_priority()`).
 - Moving `raw_data` into `job_offer_sources` enables:
   - preserving multiple raw payloads for the same logical offer (audit/history),
   - avoiding large JSONB columns on the hot canonical table used for queries,
@@ -137,6 +138,15 @@ Indexes & constraints:
 - Backfill approach: run `scripts/migrate_raw_to_sources.py` which inserts existing `job_offers.raw_data` into `job_offer_sources` in batches, validates counts and samples, then optionally drops/renames the `raw_data` column on `job_offers` once verified.
 - Keep the `raw_data` column on `job_offers` until backfill is verified. Use `canonical_raw` if a single representative raw snapshot should be kept on the canonical row.
 - Ensure `unaccent` extension and other DB extensions required by queries are installed before running migration or enabling diacritic-insensitive search.
+
+## Repository layer (`src/database/repository.py`)
+
+Two public functions manage persistence:
+
+| Function | Returns | Description |
+|:---|:---|:---|
+| `upsert_job_offers(session, offers)` | `dict[str, UUID]` | Bulk upsert into `job_offers`. Returns a mapping of `fingerprint → job_offer_id` for every row inserted or updated. Callers use this mapping to resolve the FK when writing source rows. |
+| `upsert_job_offer_sources(session, offers, fingerprint_to_id)` | `int` | Upsert one row per offer into `job_offer_sources`. Resolves `job_offer_id` from the mapping returned by `upsert_job_offers()`. Uses `ON CONFLICT (source, external_id) DO UPDATE` for idempotency on offers with a stable `external_id`; inserts a new row on every run for offers without one. |
 
 ## 3. Web Interface
 

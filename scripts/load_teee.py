@@ -21,7 +21,7 @@ from typing import Any, Dict, List, Optional
 from pydantic import ValidationError
 
 from src.core.schemas import JobOfferSchema
-from src.database.repository import upsert_job_offers
+from src.database.repository import upsert_job_offers, upsert_job_offer_sources
 from src.database.session import get_session
 from src.ingestion.teee_client import TEEEClient
 
@@ -101,13 +101,22 @@ async def _main(batch: int, out: Optional[Path], states: Optional[List[str]] = N
     # Upsert into DB; when dry_run is True, rollback instead of committing.
     async with get_session() as session:
         try:
-            count = await upsert_job_offers(session, schemas)
+            fingerprint_to_id = await upsert_job_offers(session, schemas)
+            source_count = await upsert_job_offer_sources(session, schemas, fingerprint_to_id)
             if dry_run:
                 await session.rollback()
-                LOGGER.info("Dry run enabled — rolled back. Would have upserted %d row(s)", count)
+                LOGGER.info(
+                    "Dry run enabled — rolled back. Would have upserted %d offer(s), %d source row(s)",
+                    len(fingerprint_to_id),
+                    source_count,
+                )
             else:
                 await session.commit()
-                LOGGER.info("Committed %d row(s) to DB", count)
+                LOGGER.info(
+                    "Committed %d offer(s) and %d source row(s) to DB",
+                    len(fingerprint_to_id),
+                    source_count,
+                )
         except Exception as exc:
             # Avoid flooding the terminal with enormous SQL + parameter dumps.
             # Write the full traceback to a rotating log file and emit a

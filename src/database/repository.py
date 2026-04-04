@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import logging
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from sqlalchemy import case, func
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.schemas import JobOfferSchema
-from src.database.models import JobOffer
+from src.database.models import JobOffer, JobOfferSource
 
 
 LOGGER = logging.getLogger(__name__)
@@ -33,15 +33,15 @@ def _state_priority(state_col):
 async def upsert_job_offers(
     session: AsyncSession,
     offers: list[JobOfferSchema],
-) -> int:
+) -> dict[str, UUID]:
     """Upsert a list of job offers into the job_offers table.
 
     Uses ``ON CONFLICT (fingerprint) DO UPDATE`` to keep mutable fields
-    (state, url, salary_bruto, raw_data, updated_at) current on every run.
+    current on every run. Offers with ``fingerprint=None`` are skipped.
 
-    Offers with ``fingerprint=None`` are skipped and logged as warnings.
-
-    Returns the number of rows affected (inserted + updated).
+    Returns a mapping of ``fingerprint → job_offer_id`` for every row
+    inserted or updated, so callers can resolve the FK when writing
+    ``job_offer_sources`` rows.
     """
     valid = [o for o in offers if o.fingerprint is not None]
     skipped = len(offers) - len(valid)
@@ -92,7 +92,7 @@ async def upsert_job_offers(
     # conservative chunk size dynamically based on the number of columns per
     # row to avoid ever exceeding that limit regardless of schema changes.
     MAX_PARAMS = 32767
-    total_rows = 0
+    fingerprint_to_id: dict[str, UUID] = {}
     # Determine number of parameters per row (all rows are dicts with same keys)
     params_per_row = len(rows[0])
     # Reserve one parameter as safety margin
@@ -125,6 +125,98 @@ async def upsert_job_offers(
                 "conv_type":    case((higher_or_equal, inc.conv_type),    else_=cur.conv_type),
                 "updated_at":   case((higher_or_equal, func.now()),       else_=cur.updated_at),
             },
+        ).returning(JobOffer.id, JobOffer.fingerprint)
+        result = await session.execute(stmt)
+        for row in result:
+            fingerprint_to_id[row.fingerprint] = row.id
+
+    await session.flush()
+    return fingerprint_to_id
+
+
+async def upsert_job_offer_sources(
+    session: AsyncSession,
+    offers: list[JobOfferSchema],
+    fingerprint_to_id: dict[str, UUID],
+) -> int:
+    """Upsert one source row per offer into the job_offer_sources table.
+
+    Resolves ``job_offer_id`` from the mapping returned by
+    ``upsert_job_offers()``. Offers whose fingerprint is not in the mapping
+    are skipped with a warning.
+
+    For offers with a stable ``external_id``, uses
+    ``ON CONFLICT (source, external_id) DO UPDATE`` so re-running the loader
+    is idempotent. For offers with ``external_id=None`` a new audit row is
+    inserted on every run (the ``_elastic_id`` stored in ``raw_data`` provides
+    per-run traceability).
+
+    Returns the number of rows affected.
+    """
+    rows = []
+    for offer in offers:
+        if offer.fingerprint is None:
+            continue
+        job_offer_id = fingerprint_to_id.get(offer.fingerprint)
+        if job_offer_id is None:
+            LOGGER.warning(
+                "No job_offer_id resolved for fingerprint %s; skipping source row",
+                offer.fingerprint,
+            )
+            continue
+        rows.append({
+            "id": uuid4(),
+            "job_offer_id": job_offer_id,
+            "source": offer.source,
+            "external_id": offer.external_id,
+            "raw_data": offer.raw_data,
+            "original_state": offer.state,
+        })
+
+    if not rows:
+        return 0
+
+    # Deduplicate by (source, external_id) for rows that have a non-NULL external_id.
+    # A single batch can contain the same offer across multiple states (e.g. when
+    # --state all is used); PostgreSQL raises CardinalityViolationError if ON CONFLICT
+    # DO UPDATE would touch the same row twice within one statement.
+    # For NULL external_id rows there is no conflict target, so no dedup is needed.
+    seen_source_key: dict[tuple[str, str], dict] = {}
+    deduped_rows: list[dict] = []
+    for row in rows:
+        ext_id = row.get("external_id")
+        if ext_id is None:
+            deduped_rows.append(row)
+            continue
+        key = (row["source"], ext_id)
+        existing = seen_source_key.get(key)
+        if existing is None or (
+            _STATE_PRIORITY.get(row.get("original_state", ""), 3)
+            <= _STATE_PRIORITY.get(existing.get("original_state", ""), 3)
+        ):
+            seen_source_key[key] = row
+    deduped_rows.extend(seen_source_key.values())
+    rows = deduped_rows
+
+    MAX_PARAMS = 32767
+    params_per_row = len(rows[0])
+    safe_chunk = max(1, MAX_PARAMS // (params_per_row + 1))
+    total_rows = 0
+
+    for offset in range(0, len(rows), safe_chunk):
+        chunk = rows[offset : offset + safe_chunk]
+        stmt = insert(JobOfferSource).values(chunk)
+        inc = stmt.excluded
+        # ON CONFLICT only fires for non-NULL external_id pairs (PostgreSQL
+        # treats NULLs as distinct, so NULL external_id rows never conflict).
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["source", "external_id"],
+            set_={
+                "job_offer_id": inc.job_offer_id,
+                "raw_data": inc.raw_data,
+                "original_state": inc.original_state,
+                "ingested_at": func.now(),
+            },
         )
         result = await session.execute(stmt)
         total_rows += result.rowcount
@@ -133,4 +225,4 @@ async def upsert_job_offers(
     return total_rows
 
 
-__all__ = ["upsert_job_offers"]
+__all__ = ["upsert_job_offers", "upsert_job_offer_sources"]
