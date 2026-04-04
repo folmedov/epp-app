@@ -23,6 +23,9 @@ class JobOfferSchema(BaseModel):
     id: UUID | None = None
     fingerprint: str | None = None
     external_id: str | None = None
+    external_id_generated: bool = False
+    external_id_fallback_type: str | None = None
+    content_fingerprint: str | None = None
     source: str
     title: str
     institution: str
@@ -34,6 +37,10 @@ class JobOfferSchema(BaseModel):
     region: str | None = None
     city: str | None = None
     url: str | None = None
+    ministry: str | None = None
+    start_date: str | None = None
+    close_date: str | None = None
+    conv_type: str | None = None
     raw_data: dict[str, Any]
     created_at: datetime | None = None
     updated_at: datetime | None = None

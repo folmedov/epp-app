@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional
 import httpx
 
 from src.core.config import settings
-from src.processing.transformers import compute_fingerprint, extract_external_id
+from src.processing.transformers import compute_content_fingerprint, compute_fingerprint, extract_external_id
 
 
 LOGGER = logging.getLogger(__name__)
@@ -172,13 +172,25 @@ class TEEEClient:
 		city = src.get("Ciudad")
 		url = src.get("URL") or None
 
-		external_id = src.get("ID Conv")
-		if external_id not in ("", None):
-			external_id = str(external_id)
+		# Stage-A: prefer numeric ID Conv
+		external_id_generated = False
+		external_id_fallback_type: Optional[str] = None
+		raw_conv = src.get("ID Conv")
+		if raw_conv not in ("", None) and str(raw_conv).strip().isdigit():
+			external_id: Optional[str] = str(raw_conv)
 		else:
+			# Stage-A fallback: try to extract from URL
 			external_id = extract_external_id(url) if url else None
+
 		if external_id in ("", None):
-			external_id = str(hit.get("_id")) if hit.get("_id") is not None else None
+			# Stage-B: use Elasticsearch _id as a generated fallback
+			_es_id = hit.get("_id")
+			if _es_id is not None:
+				external_id = f"teee:_id:{_es_id}"
+				external_id_generated = True
+				external_id_fallback_type = "index_id"
+			else:
+				external_id = None
 
 		raw_state = (src.get("Estado") or "").lower()
 		if raw_state == "finalizadas":
@@ -186,9 +198,42 @@ class TEEEClient:
 		else:
 			state = raw_state or None
 
-		fingerprint = compute_fingerprint(
-			"TEEE", external_id, title=title or "", institution=institution or "", region=region
+		# Extract additional fields used to enrich the content fingerprint
+		ministry = src.get("Ministerio")
+		start_date = src.get("Fecha inicio Convocatoria")
+		conv_type = src.get("Tipo Convocatoria")
+		close_date = src.get("Fecha cierre Convocatoria")
+
+		# Always compute a content fingerprint for cross-source matching
+		content_fingerprint = compute_content_fingerprint(
+			title or "",
+			institution or "",
+			region,
+			city,
+			ministry=ministry,
+			start_date=start_date,
+			conv_type=conv_type,
+			close_date=close_date,
 		)
+
+		fingerprint = compute_fingerprint(
+			"TEEE",
+			external_id,
+			title=title or "",
+			institution=institution or "",
+			region=region,
+			city=city,
+			external_id_generated=external_id_generated,
+			ministry=ministry,
+			start_date=start_date,
+			conv_type=conv_type,
+			close_date=close_date,
+		)
+
+		# Include the Elasticsearch _id in raw_data for traceability
+		raw_data = dict(src)
+		if hit.get("_id") is not None:
+			raw_data["_elastic_id"] = hit.get("_id")
 
 		return {
 			"source": "TEEE",
@@ -200,8 +245,15 @@ class TEEEClient:
 			"url": url or None,
 			"salary_bruto": None,
 			"external_id": external_id,
+			"external_id_generated": external_id_generated,
+			"external_id_fallback_type": external_id_fallback_type,
+			"content_fingerprint": content_fingerprint,
 			"fingerprint": fingerprint,
-			"raw_data": src,
+			"ministry": ministry,
+			"start_date": start_date,
+			"close_date": close_date,
+			"conv_type": conv_type,
+			"raw_data": raw_data,
 		}
 
 	@staticmethod

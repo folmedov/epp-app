@@ -67,6 +67,10 @@ async def upsert_job_offers(
                 "state": stmt.excluded.state,
                 "url": stmt.excluded.url,
                 "salary_bruto": stmt.excluded.salary_bruto,
+                "ministry": stmt.excluded.ministry,
+                "start_date": stmt.excluded.start_date,
+                "close_date": stmt.excluded.close_date,
+                "conv_type": stmt.excluded.conv_type,
                 "updated_at": func.now(),
             },
         )

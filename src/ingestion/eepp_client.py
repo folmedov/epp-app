@@ -15,7 +15,12 @@ from typing import Any
 import httpx
 
 from src.core.config import settings
-from src.processing.transformers import compute_fingerprint, extract_external_id, parse_salary
+from src.processing.transformers import (
+	compute_fingerprint,
+	compute_content_fingerprint,
+	extract_external_id,
+	parse_salary,
+)
 
 _TIPOTXT_TO_SOURCE: dict[str, str] = {
     "Empleos Públicos": "EEPP",
@@ -119,12 +124,34 @@ class EEPPClient:
 		region: str | None = raw_offer.get("Región")
 
 		external_id = extract_external_id(url)
+
+		# EEPP exposes some ministry/date fields in its payload; include them when present
+		ministry = raw_offer.get("Ministerio")
+		start_date = raw_offer.get("Fecha Inicio") or raw_offer.get("Fecha Inicio Convocatoria")
+		close_date = raw_offer.get("Fecha Cierre Convocatoria")
+
+		content_fingerprint = compute_content_fingerprint(
+			title or "",
+			institution or "",
+			region,
+			raw_offer.get("Ciudad"),
+			ministry=ministry,
+			start_date=start_date,
+			conv_type=None,
+			close_date=close_date,
+		)
+
 		fingerprint = compute_fingerprint(
 			source,
 			external_id,
 			title=title or "",
 			institution=institution or "",
 			region=region,
+			city=raw_offer.get("Ciudad"),
+			ministry=ministry,
+			start_date=start_date,
+			conv_type=None,
+			close_date=close_date,
 		)
 
 		return {
@@ -135,9 +162,16 @@ class EEPPClient:
 			"region": region,
 			"city": raw_offer.get("Ciudad"),
 			"url": url or None,
-		"salary_bruto": parse_salary(raw_offer.get("Renta Bruta")),
+			"salary_bruto": parse_salary(raw_offer.get("Renta Bruta")),
 			"external_id": external_id,
+			"external_id_generated": False,
+			"external_id_fallback_type": None,
+			"content_fingerprint": content_fingerprint,
 			"fingerprint": fingerprint,
+			"ministry": ministry,
+			"start_date": start_date,
+			"close_date": close_date,
+			"conv_type": None,
 			"raw_data": raw_offer,
 		}
 

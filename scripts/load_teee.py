@@ -41,8 +41,15 @@ _SCHEMA_FIELDS = {
     "url",
     "salary_bruto",
     "external_id",
+    "external_id_generated",
+    "external_id_fallback_type",
+    "content_fingerprint",
     "fingerprint",
     "raw_data",
+    "ministry",
+    "start_date",
+    "close_date",
+    "conv_type",
 }
 
 

@@ -49,7 +49,19 @@ def extract_external_id(url: str | None) -> str | None:
         except ValueError:
             pass
 
+    # directoresparachile.cl → use PDF filename stem as stable id (e.g. dee_1967_7707)
+    if "directoresparachile.cl" in domain:
+        parts = [p for p in parsed.path.split("/") if p]
+        if parts:
+            filename = parts[-1]
+            stem = filename.split("?")[0]
+            if stem.lower().endswith(".pdf"):
+                stem = stem[: -4]
+            return stem if stem else None
+
     return None
+
+
 
 
 def parse_salary(raw: str | None) -> Decimal | None:
@@ -68,6 +80,37 @@ def parse_salary(raw: str | None) -> Decimal | None:
     return value if value > 0 else None
 
 
+def compute_content_fingerprint(
+    title: str,
+    institution: str,
+    region: str | None,
+    city: str | None,
+    *,
+    ministry: str | None = None,
+    start_date: str | None = None,
+    conv_type: str | None = None,
+    close_date: str | None = None,
+) -> str:
+    """MD5 of normalised composed fields.
+
+    New fingerprint includes optional fields to reduce Stage-B collisions:
+    title|institution|region|city|ministry|start_date|conv_type|close_date
+    Text fields are lowercased and stripped; dates are included as-provided.
+    """
+    parts = [
+        title.strip().lower(),
+        institution.strip().lower(),
+        (region or "").strip().lower(),
+        (city or "").strip().lower(),
+        (ministry or "").strip().lower(),
+        (start_date or ""),
+        (conv_type or "").strip().lower(),
+        (close_date or ""),
+    ]
+    raw = "|".join(parts)
+    return hashlib.md5(raw.encode()).hexdigest()
+
+
 def compute_fingerprint(
     source: str,
     external_id: str | None,
@@ -75,20 +118,45 @@ def compute_fingerprint(
     title: str,
     institution: str,
     region: str | None,
+    city: str | None = None,
+    external_id_generated: bool = False,
+    ministry: str | None = None,
+    start_date: str | None = None,
+    conv_type: str | None = None,
+    close_date: str | None = None,
 ) -> str:
     """Return the MD5 hex digest (32 chars) used as deduplication key.
 
-    When ``external_id`` is available: ``MD5(source|external_id)``
-    Fallback (no external_id): ``MD5(source|title|institution|region)``
+    Two-stage strategy (mirrors ``teee_external_id_policy.md``):
+
+    Stage A — reliable ``external_id`` (``external_id_generated=False``):
+        ``MD5("source_id|{source}|{external_id}")``
+
+    Stage B — no reliable ``external_id``:
+        ``MD5("content|{compute_content_fingerprint(...)}")``
+
+    The ``"source_id|"`` / ``"content|"`` prefixes prevent accidental
+    hash collisions between the two families of fingerprints.
     """
-    if external_id is not None:
-        raw = f"{source}|{external_id}"
+    if external_id is not None and not external_id_generated:
+        raw = f"source_id|{source}|{external_id}"
     else:
-        raw = f"{source}|{title}|{institution}|{region or ''}"
+        content_fp = compute_content_fingerprint(
+            title,
+            institution,
+            region,
+            city,
+            ministry=ministry,
+            start_date=start_date,
+            conv_type=conv_type,
+            close_date=close_date,
+        )
+        raw = f"content|{content_fp}"
     return hashlib.md5(raw.encode()).hexdigest()
 
 
 __all__ = [
+    "compute_content_fingerprint",
     "compute_fingerprint",
     "extract_external_id",
     "parse_salary",
