@@ -40,4 +40,5 @@ htmlcov/
 # === Otros ===
 logs/
 *.log
+reports/
 general.md

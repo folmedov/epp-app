@@ -49,15 +49,18 @@ def extract_external_id(url: str | None) -> str | None:
         except ValueError:
             pass
 
-    # directoresparachile.cl → use PDF filename stem as stable id (e.g. dee_1967_7707)
+    # directoresparachile.cl → only use `?i=<id>` query param as stable id.
+    # PDF filename stems (e.g. dee_18099) are NOT unique — the same file is
+    # reused across different concursos at different times, so treating the stem
+    # as external_id causes false Stage-A collisions.  When `?i=` is absent,
+    # returning None forces Stage-B (content fingerprint) which correctly
+    # differentiates records by title, institution, and dates.
     if "directoresparachile.cl" in domain:
-        parts = [p for p in parsed.path.split("/") if p]
-        if parts:
-            filename = parts[-1]
-            stem = filename.split("?")[0]
-            if stem.lower().endswith(".pdf"):
-                stem = stem[: -4]
-            return stem if stem else None
+        qs = parse_qs(parsed.query)
+        values = qs.get("i", [])
+        if values and values[0]:
+            return values[0]
+        return None
 
     return None
 
