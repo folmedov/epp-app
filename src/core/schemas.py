@@ -38,8 +38,8 @@ class JobOfferSchema(BaseModel):
     city: str | None = None
     url: str | None = None
     ministry: str | None = None
-    start_date: str | None = None
-    close_date: str | None = None
+    start_date: datetime | None = None
+    close_date: datetime | None = None
     conv_type: str | None = None
     raw_data: dict[str, Any]
     created_at: datetime | None = None

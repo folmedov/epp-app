@@ -34,9 +34,14 @@
 - [x] **3.6 Load TEEE Offers**: create loader script to fetch and store TEEE offers (details: docs/sprints/sprint_3_6_load_teee_offers.md)
 - [x] **3.7 Enrich & Extend**: Enrich `content_fingerprint` and extend `external_id` (details: docs/sprints/sprint_3_7_enrich_extend.md)
 - [x] **3.8 Load & Logging Fixes**: Fix `load_teee` runtime failures and noisy error output (details: docs/sprints/sprint_3_8_load_teee_fixes.md)
-- [ ] **3.9 Matching & Upsert**: Extend upsert flow to support multi-source ingestion and link `job_offer_sources` to canonical `job_offers` (details: docs/sprints/sprint_3_9_matching_upsert.md)
-- [ ] **3.10 State Observer / Reconciliation**: Add a periodic reconciliation job to compute canonical `state` from all sources (details: docs/sprints/sprint_3_10_reconciliation.md)
-- [ ] **3.11 Tests & Migration**: Add migration/backfill tooling and unit/integration tests for mapping, upsert, and reconciliation (details: docs/sprints/sprint_3_11_tests_migration.md)
+- [x] **3.9 Data Quality & Schema Fixes** *(no separate sprint doc — changes are self-contained)*:
+  - **State priority in upsert**: `postulacion > evaluacion > finalizada`. Applied at two levels: in-memory dedup within a batch (`seen` dict) and `ON CONFLICT DO UPDATE` via SQL `CASE` expressions so a lower-priority state never overwrites a higher-priority one, even across separate loader runs or `--state all`.
+  - **`start_date` / `close_date` as `DateTime`**: Migrated from `String(64)` to `DateTime` (migration `0005_dates_as_datetime`). TEEE date strings (`DD/MM/YYYY H:MM` and `DD/MM/YYYY H:MM:SS`) are now parsed in `TEEEClient._parse_teee_date()` before reaching the schema. Fingerprint Stage-B now uses ISO 8601 serialization for dates.
+  - **Documentation consolidation**: Merged `fingerprint_generation.md` and `teee_external_id_policy.md` into `docs/design/deduplication.md` (old files removed). Added missing coverage: state priority policy, normalization pipeline gap, `UniqueConstraint` on `job_offer_sources`, MD5 risk notes.
+- [ ] **3.10 Populate job_offer_sources**: During the `load_teee` upsert flow, write one row per ingested offer to `job_offer_sources` (fields: `source`, `external_id`, `raw_data`, `original_state`) and resolve `job_offer_id` pointing to the canonical row in `job_offers`. Enables raw-data and external-ID auditability without requiring multi-source reconciliation. (details: docs/sprints/sprint_3_10_populate_sources.md)
+- [ ] **3.11 Cross-source Matching**: Extend upsert flow to support multi-source ingestion (TEEE + EEPP). Link `job_offer_sources` rows across sources to the same canonical `job_offers` row via `external_id` or `content_fingerprint`. Includes `pending_verification` flag and reconciliation script. (details: docs/sprints/sprint_3_11_cross_source_matching.md)
+- [ ] **3.12 State Observer / Reconciliation**: Add a periodic reconciliation job to compute canonical `state` from all sources (details: docs/sprints/sprint_3_12_reconciliation.md)
+- [ ] **3.13 Tests & Migration**: Add migration/backfill tooling and unit/integration tests for mapping, upsert, and reconciliation (details: docs/sprints/sprint_3_13_tests_migration.md)
 
 ### 📊 Sprint 4: Analysis & Reporting
 - [ ] **4.1 Analytics Views**: Create SQL views in Postgres for salary averages and regional demand.

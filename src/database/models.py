@@ -42,8 +42,8 @@ class JobOffer(Base):
 	city: Mapped[str | None] = mapped_column(String(255), nullable=True)
 	url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
 	ministry: Mapped[str | None] = mapped_column(String(255), nullable=True)
-	start_date: Mapped[str | None] = mapped_column(String(64), nullable=True)
-	close_date: Mapped[str | None] = mapped_column(String(64), nullable=True)
+	start_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=False), nullable=True)
+	close_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=False), nullable=True)
 	conv_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
 	created_at: Mapped[datetime] = mapped_column(
 		DateTime(timezone=True),

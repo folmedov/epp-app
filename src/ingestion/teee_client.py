@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import asyncio
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -17,6 +18,33 @@ from src.processing.transformers import compute_content_fingerprint, compute_fin
 
 
 LOGGER = logging.getLogger(__name__)
+
+_DATE_FORMATS = (
+    "%d/%m/%Y %H:%M:%S",
+    "%d/%m/%Y %H:%M",
+    "%d/%m/%Y %-H:%M:%S",   # single-digit hour without zero-pad
+    "%d/%m/%Y %-H:%M",
+)
+
+
+def _parse_teee_date(raw: str | None) -> datetime | None:
+    """Parse TEEE date strings into datetime objects.
+
+    TEEE delivers dates in two formats:
+    - 'DD/MM/YYYY H:MM'       e.g. '22/03/2026 0:00'
+    - 'DD/MM/YYYY H:MM:SS'    e.g. '19/03/2026 0:00:00'
+    Returns None when the value is absent or unparseable.
+    """
+    if not raw:
+        return None
+    raw = raw.strip()
+    for fmt in _DATE_FORMATS:
+        try:
+            return datetime.strptime(raw, fmt)
+        except ValueError:
+            continue
+    LOGGER.warning("Could not parse TEEE date: %r", raw)
+    return None
 
 
 class TEEEClientError(Exception):
@@ -200,9 +228,9 @@ class TEEEClient:
 
 		# Extract additional fields used to enrich the content fingerprint
 		ministry = src.get("Ministerio")
-		start_date = src.get("Fecha inicio Convocatoria")
+		start_date = _parse_teee_date(src.get("Fecha inicio Convocatoria"))
 		conv_type = src.get("Tipo Convocatoria")
-		close_date = src.get("Fecha cierre Convocatoria")
+		close_date = _parse_teee_date(src.get("Fecha cierre Convocatoria"))
 
 		# Always compute a content fingerprint for cross-source matching
 		content_fingerprint = compute_content_fingerprint(

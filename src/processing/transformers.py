@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from urllib.parse import parse_qs, urlparse
 
@@ -90,15 +91,15 @@ def compute_content_fingerprint(
     city: str | None,
     *,
     ministry: str | None = None,
-    start_date: str | None = None,
+    start_date: datetime | None = None,
     conv_type: str | None = None,
-    close_date: str | None = None,
+    close_date: datetime | None = None,
 ) -> str:
     """MD5 of normalised composed fields.
 
     New fingerprint includes optional fields to reduce Stage-B collisions:
     title|institution|region|city|ministry|start_date|conv_type|close_date
-    Text fields are lowercased and stripped; dates are included as-provided.
+    Text fields are lowercased and stripped; dates are formatted as ISO 8601.
     """
     parts = [
         title.strip().lower(),
@@ -106,9 +107,9 @@ def compute_content_fingerprint(
         (region or "").strip().lower(),
         (city or "").strip().lower(),
         (ministry or "").strip().lower(),
-        (start_date or ""),
+        start_date.isoformat() if start_date is not None else "",
         (conv_type or "").strip().lower(),
-        (close_date or ""),
+        close_date.isoformat() if close_date is not None else "",
     ]
     raw = "|".join(parts)
     return hashlib.md5(raw.encode()).hexdigest()
@@ -124,9 +125,9 @@ def compute_fingerprint(
     city: str | None = None,
     external_id_generated: bool = False,
     ministry: str | None = None,
-    start_date: str | None = None,
+    start_date: datetime | None = None,
     conv_type: str | None = None,
-    close_date: str | None = None,
+    close_date: datetime | None = None,
 ) -> str:
     """Return the MD5 hex digest (32 chars) used as deduplication key.
 
