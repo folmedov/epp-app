@@ -42,6 +42,21 @@ async def upsert_job_offers(
     # per-source fields such as `external_id` and `raw_data` which live in
     # `job_offer_sources`).
     allowed_cols = {c.name for c in JobOffer.__table__.columns}
+
+    # Defensive check: new sprint added columns must exist in the target DB schema.
+    # If migrations haven't been applied against the DATABASE_URL used by this
+    # process, the multi-row INSERT below will fail with a cryptic SQLAlchemy
+    # DataError. Detect and fail fast with a clear message.
+    required_new_cols = {"ministry", "start_date", "close_date", "conv_type"}
+    missing = required_new_cols - allowed_cols
+    if missing:
+        LOGGER.error(
+            "Database schema missing expected columns: %s. Run alembic upgrade head against the DATABASE_URL in your environment.",
+            ", ".join(sorted(missing)),
+        )
+        raise RuntimeError(
+            "Database schema out-of-sync: missing columns: " + ", ".join(sorted(missing))
+        )
     seen: dict[str, dict] = {}
     for offer in valid:
         row = offer.model_dump(exclude={"id", "created_at", "updated_at"})
@@ -53,13 +68,25 @@ async def upsert_job_offers(
     if deduped:
         LOGGER.warning("Removed %d duplicate fingerprint(s) from batch", deduped)
 
-    # asyncpg uses a signed Int16 for the Bind message param count, giving a
-    # practical maximum of 32 767 parameters per statement.
-    # With 10 columns per row the safe chunk size is 32767 // 10 = 3276.
-    _CHUNK = 3000
+    # asyncpg uses a signed Int16 for the Bind message param count, giving
+    # a practical maximum of 32_767 parameters per statement. Compute a
+    # conservative chunk size dynamically based on the number of columns per
+    # row to avoid ever exceeding that limit regardless of schema changes.
+    MAX_PARAMS = 32767
     total_rows = 0
-    for offset in range(0, len(rows), _CHUNK):
-        chunk = rows[offset : offset + _CHUNK]
+    # Determine number of parameters per row (all rows are dicts with same keys)
+    params_per_row = len(rows[0])
+    # Reserve one parameter as safety margin
+    safe_chunk = max(1, MAX_PARAMS // (params_per_row + 1))
+    if safe_chunk < len(rows):
+        LOGGER.info(
+            "Chunking inserts: %d params/row -> using chunk size %d to avoid exceeding %d parameters",
+            params_per_row,
+            safe_chunk,
+            MAX_PARAMS,
+        )
+    for offset in range(0, len(rows), safe_chunk):
+        chunk = rows[offset : offset + safe_chunk]
         stmt = insert(JobOffer).values(chunk)
         stmt = stmt.on_conflict_do_update(
             index_elements=["fingerprint"],

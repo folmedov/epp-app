@@ -38,4 +38,6 @@ htmlcov/
 .ipynb_checkpoints/
 
 # === Otros ===
+logs/
+*.log
 general.md

@@ -29,6 +29,10 @@ from src.ingestion.teee_client import TEEEClient
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s", datefmt="%Y-%m-%dT%H:%M:%S")
 LOGGER = logging.getLogger(__name__)
 
+# Prevent SQLAlchemy/DB drivers from emitting full SQL + parameters to stdout
+for noisy in ("sqlalchemy.engine", "sqlalchemy.engine.Engine", "asyncpg", "sqlalchemy.pool"):
+    logging.getLogger(noisy).setLevel(logging.WARNING)
+
 
 # Fields accepted by JobOfferSchema (used to filter normalized dicts)
 _SCHEMA_FIELDS = {
@@ -104,9 +108,21 @@ async def _main(batch: int, out: Optional[Path], states: Optional[List[str]] = N
             else:
                 await session.commit()
                 LOGGER.info("Committed %d row(s) to DB", count)
-        except Exception:
-            LOGGER.exception("Failed during DB write")
-            raise
+        except Exception as exc:
+            # Avoid flooding the terminal with enormous SQL + parameter dumps.
+            # Write the full traceback to a rotating log file and emit a
+            # concise error message pointing to that file. Exit with code 1
+            # (SystemExit) so the interpreter doesn't print the full traceback.
+            import traceback
+            import datetime
+
+            logs_dir = Path("logs")
+            logs_dir.mkdir(exist_ok=True)
+            ts = datetime.datetime.utcnow().strftime("%Y%m%d%H%M%S")
+            log_path = logs_dir / f"loader_error_{ts}.log"
+            log_path.write_text(traceback.format_exc(), encoding="utf-8")
+            LOGGER.error("DB write failed: %s. Full traceback saved to %s", exc, log_path)
+            raise SystemExit(1)
 
 
 def main() -> None:

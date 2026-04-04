@@ -33,9 +33,10 @@
 - [x] **3.5 Refactor TEEEClient**: use `search_after`to do pagination (details: docs/sprints/sprint_3_5_refactor_teee_client.md)
 - [x] **3.6 Load TEEE Offers**: create loader script to fetch and store TEEE offers (details: docs/sprints/sprint_3_6_load_teee_offers.md)
 - [x] **3.7 Enrich & Extend**: Enrich `content_fingerprint` and extend `external_id` (details: docs/sprints/sprint_3_7_enrich_extend.md)
-- [ ] **3.8 Matching & Upsert**: Extend upsert flow to support multi-source ingestion and link `job_offer_sources` to canonical `job_offers` (details: docs/sprints/sprint_3_8_matching_upsert.md)
-- [ ] **3.9 State Observer / Reconciliation**: Add a periodic reconciliation job to compute canonical `state` from all sources (details: docs/sprints/sprint_3_9_reconciliation.md)
-- [ ] **3.10 Tests & Migration**: Add migration/backfill tooling and unit/integration tests for mapping, upsert, and reconciliation (details: docs/sprints/sprint_3_10_tests_migration.md)
+- [x] **3.8 Load & Logging Fixes**: Fix `load_teee` runtime failures and noisy error output (details: docs/sprints/sprint_3_8_load_teee_fixes.md)
+- [ ] **3.9 Matching & Upsert**: Extend upsert flow to support multi-source ingestion and link `job_offer_sources` to canonical `job_offers` (details: docs/sprints/sprint_3_9_matching_upsert.md)
+- [ ] **3.10 State Observer / Reconciliation**: Add a periodic reconciliation job to compute canonical `state` from all sources (details: docs/sprints/sprint_3_10_reconciliation.md)
+- [ ] **3.11 Tests & Migration**: Add migration/backfill tooling and unit/integration tests for mapping, upsert, and reconciliation (details: docs/sprints/sprint_3_11_tests_migration.md)
 
 ### 📊 Sprint 4: Analysis & Reporting
 - [ ] **4.1 Analytics Views**: Create SQL views in Postgres for salary averages and regional demand.
