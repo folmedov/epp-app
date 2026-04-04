@@ -58,6 +58,10 @@ Primary canonical table: `job_offers` (summary)
 |region|String|Geographical region in Chile.
 |city|String|City or commune.
 |url|String|Representative URL for the current canonical state (note: EEPP URLs may change between states).
+|ministry|String|Ministry or contracting entity (Nullable). Mapped from `Ministerio` in both EEPP and TEEE.
+|start_date|String|Process start date as reported by the source (Nullable), stored as-is (e.g. `"26/01/2023 0:00:00"`).
+|close_date|String|Application close date as reported by the source (Nullable), stored as-is.
+|conv_type|String|Convocation type code (Nullable). Populated from TEEE's `Tipo Convocatoria` (e.g. `DEE`, `ADP`); `NULL` for EEPP.
 |created_at|Timestamp|Automatic record creation time (UTC).
 |updated_at|Timestamp|Time of last canonical update (UTC).
 
@@ -87,6 +91,7 @@ Extraction depends on URL domain and structure. These rules feed `external_id` o
 | `empleospublicos.cl` | `?i=<id>` query param | `i` value (e.g. `139281`) |
 | `junji.myfront.cl` | `/oferta-de-empleo/<id>/slug` | path segment after `/oferta-de-empleo/` |
 | `*.trabajando.cl` | `/trabajo/<id>-slug` | numeric prefix before first `-` |
+| `directoresparachile.cl` | `/Repositorio/PDFConcursos/<id>.pdf` | PDF filename without extension (e.g. `dee_1967_7707`) |
 | `educacionpublica.gob.cl`, `renca.cl`, etc. | No stable ID | `None` |
 
 ### Fingerprint Strategy
@@ -117,7 +122,7 @@ This table stores every ingest's original payload and metadata. It is the source
 |job_offer_id|UUID|FK → `job_offers.id`. Nullable during backfill (populate when canonical row is present).
 |source|String|Source name (EEPP, TEEE, JUNJI, ETC).
 |external_id|String|Source-native identifier when available.
-|raw_data|JSONB|Full original JSON payload returned by the source API.
+|raw_data|JSONB|Full original JSON payload returned by the source API. For TEEE records, the pipeline injects a synthetic key `_elastic_id` (string) containing the Elasticsearch document `_id`. This key is **not** part of the source API response; it is added during normalization for traceability when `external_id` is unavailable or generated.
 |original_state|String|State value reported by the source for this payload.
 |ingested_at|Timestamp|Time when this payload was ingested into the system.
 
