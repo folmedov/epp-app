@@ -59,8 +59,9 @@ Primary canonical table: `job_offers` (summary)
 |city|String|City or commune.
 |url|String|Representative URL for the current canonical state (note: EEPP URLs may change between states).
 |ministry|String|Ministry or contracting entity (Nullable). Mapped from `Ministerio` in both EEPP and TEEE.
-|start_date|Timestamp (no tz)|Process start date (Nullable). Parsed from TEEE source strings (`DD/MM/YYYY H:MM` or `DD/MM/YYYY H:MM:SS`) by `TEEEClient._parse_teee_date()` before storage. ISO 8601 serialization is used in fingerprint computation.
+|start_date|Timestamp (no tz)|Process start date (Nullable). Both EEPP and TEEE deliver dates in `DD/MM/YYYY H:MM` or `DD/MM/YYYY H:MM:SS` format; they are normalized to `datetime` by `parse_date()` in `transformers.py` before fingerprint computation and storage. ISO 8601 serialization is used in Stage-B fingerprints.
 |close_date|Timestamp (no tz)|Application close date (Nullable). Same parsing rules as `start_date`.
+|cross_source_key|String(32)|Cross-source linking key (Nullable). `MD5("cross\|{external_id}")` when a verified (non-generated) `external_id` is available; `NULL` otherwise. Source-agnostic: the same external ID produces the same key regardless of portal. Used by the upsert flow to link EEPP and TEEE ingestions of the same offer to one canonical row. Added in Sprint 3.11.
 |conv_type|String|Convocation type code (Nullable). Populated from TEEE's `Tipo Convocatoria` (e.g. `DEE`, `ADP`); `NULL` for EEPP.
 |created_at|Timestamp|Automatic record creation time (UTC).
 |updated_at|Timestamp|Time of last canonical update (UTC).
@@ -89,19 +90,20 @@ Extraction depends on URL domain and structure. These rules feed `external_id` o
 | Domain | Pattern | Extraction |
 |:---|:---|:---|
 | `empleospublicos.cl` | `?i=<id>` query param | `i` value (e.g. `139281`) |
-| `junji.myfront.cl` | `/oferta-de-empleo/<id>/slug` | path segment after `/oferta-de-empleo/` |
+| `junji.myfront.cl` | `/oferta-de-empleo/<id>/slug` | **`None`** — JUNJI reuses numeric IDs across different positions; Stage-B (content fingerprint) is used instead to avoid collisions |
 | `*.trabajando.cl` | `/trabajo/<id>-slug` | numeric prefix before first `-` |
 | `directoresparachile.cl` | `/Repositorio/PDFConcursos/<id>.pdf` | PDF filename without extension (e.g. `dee_1967_7707`) |
 | `educacionpublica.gob.cl`, `renca.cl`, etc. | No stable ID | `None` |
 
 ### Fingerprint Strategy
 
-Two complementary fingerprint keys are produced to serve different purposes:
+Three complementary keys are produced per offer:
 
-- `per_source_fingerprint` (existing behavior): when `external_id` is available compute `MD5(source + "|" + external_id)`. This key deduplicates records within the same source and is stable across URL/state transitions for that source.
-- `cross_source_key` (new): when `external_id` is available compute a source-agnostic key (e.g. `MD5(external_id)` or normalized external identifier) to enable linking the same logical offer across different sources (EEPP ↔ TEEE). The exact choice and normalization rules for `cross_source_key` are defined in Sprint 3 and implemented in the upsert flow.
+- **`fingerprint` (Stage-A, per-source)**: `MD5("source_id|{source}|{external_id}")` when a verified `external_id` is available. Deduplicates within the same source and is the `UNIQUE` key on `job_offers`. Falls back to Stage-B when no reliable `external_id` exists.
+- **`content_fingerprint` (Stage-B)**: `MD5("content|" + MD5(title|institution|region|city|ministry|start_date_iso|conv_type|close_date_iso))`. Dates are serialized via `datetime.isoformat()`. Used as the Stage-A fallback and for cross-source content comparison. Both EEPP and TEEE normalize dates through `parse_date()` in `transformers.py` before this computation.
+- **`cross_source_key`** (Sprint 3.11): `MD5("cross|{external_id}")` when a verified `external_id` is available; `NULL` otherwise. Source-agnostic: TEEE `ID Conv` and EEPP `?i=` values for the same offer produce the same key. The upsert flow uses this key to detect an existing canonical row from a different source and skips inserting a new `job_offers` row, writing only a new `job_offer_sources` row instead.
 
-When no `external_id` is available, fall back to a composed fingerprint such as `MD5(title + "|" + institution + "|" + region)` with awareness that collision risk is higher for these generic records.
+When no `external_id` is available the fallback is Stage-B (`content_fingerprint`). Collision risk is higher for generic records without a stable ID.
 
 ### Observations
 

@@ -14,37 +14,10 @@ from typing import Any, Dict, List, Optional
 import httpx
 
 from src.core.config import settings
-from src.processing.transformers import compute_content_fingerprint, compute_fingerprint, extract_external_id
+from src.processing.transformers import compute_content_fingerprint, compute_fingerprint, compute_cross_source_key, extract_external_id, parse_date
 
 
 LOGGER = logging.getLogger(__name__)
-
-_DATE_FORMATS = (
-    "%d/%m/%Y %H:%M:%S",
-    "%d/%m/%Y %H:%M",
-    "%d/%m/%Y %-H:%M:%S",   # single-digit hour without zero-pad
-    "%d/%m/%Y %-H:%M",
-)
-
-
-def _parse_teee_date(raw: str | None) -> datetime | None:
-    """Parse TEEE date strings into datetime objects.
-
-    TEEE delivers dates in two formats:
-    - 'DD/MM/YYYY H:MM'       e.g. '22/03/2026 0:00'
-    - 'DD/MM/YYYY H:MM:SS'    e.g. '19/03/2026 0:00:00'
-    Returns None when the value is absent or unparseable.
-    """
-    if not raw:
-        return None
-    raw = raw.strip()
-    for fmt in _DATE_FORMATS:
-        try:
-            return datetime.strptime(raw, fmt)
-        except ValueError:
-            continue
-    LOGGER.warning("Could not parse TEEE date: %r", raw)
-    return None
 
 
 class TEEEClientError(Exception):
@@ -228,9 +201,9 @@ class TEEEClient:
 
 		# Extract additional fields used to enrich the content fingerprint
 		ministry = src.get("Ministerio")
-		start_date = _parse_teee_date(src.get("Fecha inicio Convocatoria"))
+		start_date = parse_date(src.get("Fecha inicio Convocatoria"))
 		conv_type = src.get("Tipo Convocatoria")
-		close_date = _parse_teee_date(src.get("Fecha cierre Convocatoria"))
+		close_date = parse_date(src.get("Fecha cierre Convocatoria"))
 
 		# Always compute a content fingerprint for cross-source matching
 		content_fingerprint = compute_content_fingerprint(
@@ -277,6 +250,7 @@ class TEEEClient:
 			"external_id_fallback_type": external_id_fallback_type,
 			"content_fingerprint": content_fingerprint,
 			"fingerprint": fingerprint,
+			"cross_source_key": compute_cross_source_key(external_id, external_id_generated),
 			"ministry": ministry,
 			"start_date": start_date,
 			"close_date": close_date,

@@ -7,6 +7,36 @@ from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from urllib.parse import parse_qs, urlparse
 
+# Date formats shared by EEPP and TEEE (DD/MM/YYYY with varying time precision).
+_DATE_FORMATS = (
+    "%d/%m/%Y %H:%M:%S",
+    "%d/%m/%Y %H:%M",
+    "%d/%m/%Y %-H:%M:%S",
+    "%d/%m/%Y %-H:%M",
+)
+
+
+def parse_date(raw: str | datetime | None) -> datetime | None:
+    """Normalize a raw date value from any source into a ``datetime``.
+
+    Accepts an already-parsed ``datetime`` (returned as-is), a string in any
+    of the EEPP/TEEE formats (``DD/MM/YYYY H:MM`` or ``DD/MM/YYYY H:MM:SS``),
+    or ``None`` / empty string (returns ``None``).
+    """
+    if raw is None:
+        return None
+    if isinstance(raw, datetime):
+        return raw
+    raw = raw.strip()
+    if not raw:
+        return None
+    for fmt in _DATE_FORMATS:
+        try:
+            return datetime.strptime(raw, fmt)
+        except ValueError:
+            continue
+    return None
+
 
 def extract_external_id(url: str | None) -> str | None:
     """Extract the source-native ID from a job offer URL.
@@ -16,9 +46,14 @@ def extract_external_id(url: str | None) -> str | None:
 
     Rules per domain:
     - empleospublicos.cl  → ``?i=<id>`` query param
-    - junji.myfront.cl    → ``/oferta-de-empleo/<id>/slug`` path segment
     - *.trabajando.cl     → ``/trabajo/<id>-slug`` numeric prefix
     - anything else       → None
+
+    Note: ``junji.myfront.cl`` IDs are **not extracted** because JUNJI
+    reuses the same numeric ID across different positions. Treating those
+    IDs as stable external keys causes Stage-A fingerprint collisions where
+    two genuinely distinct offers share one canonical ``job_offers`` row.
+    These records fall through to Stage-B (content fingerprint) instead.
     """
     if not url:
         return None
@@ -31,13 +66,6 @@ def extract_external_id(url: str | None) -> str | None:
         qs = parse_qs(parsed.query)
         values = qs.get("i", [])
         return values[0] if values and values[0] else None
-
-    # junji.myfront.cl → /oferta-de-empleo/<id>/slug
-    if domain == "junji.myfront.cl":
-        parts = [p for p in parsed.path.split("/") if p]
-        if len(parts) >= 2 and parts[0] == "oferta-de-empleo":
-            candidate = parts[1]
-            return candidate if candidate else None
 
     # *.trabajando.cl → /trabajo/<id>-slug  (id is numeric prefix before first -)
     if "trabajando.cl" in domain:
@@ -82,6 +110,19 @@ def parse_salary(raw: str | None) -> Decimal | None:
     except InvalidOperation:
         return None
     return value if value > 0 else None
+
+
+def compute_cross_source_key(external_id: str | None, external_id_generated: bool) -> str | None:
+    """Return a source-agnostic linking key for cross-portal deduplication.
+
+    Computes ``MD5("cross|{external_id}")`` when *external_id* is a verified
+    (non-generated) value.  Returns ``None`` for generated / absent IDs.  The
+    ``"cross|"`` prefix prevents accidental collisions with Stage-A or Stage-B
+    fingerprints.
+    """
+    if external_id is None or external_id_generated:
+        return None
+    return hashlib.md5(f"cross|{external_id}".encode()).hexdigest()
 
 
 def compute_content_fingerprint(
@@ -161,7 +202,9 @@ def compute_fingerprint(
 
 __all__ = [
     "compute_content_fingerprint",
+    "compute_cross_source_key",
     "compute_fingerprint",
     "extract_external_id",
+    "parse_date",
     "parse_salary",
 ]

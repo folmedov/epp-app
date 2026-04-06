@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from uuid import UUID, uuid4
 
-from sqlalchemy import case, func
+from sqlalchemy import case, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -49,7 +49,7 @@ async def upsert_job_offers(
         LOGGER.warning("Skipping %d offer(s) without fingerprint", skipped)
 
     if not valid:
-        return 0
+        return {}
 
     # Deduplicate by fingerprint — keep last occurrence (same as DB would keep on conflict).
     # Only include columns that exist on the JobOffer ORM model (schema may contain
@@ -87,12 +87,60 @@ async def upsert_job_offers(
     if deduped:
         LOGGER.warning("Removed %d duplicate fingerprint(s) from batch", deduped)
 
+    # Cross-source pre-lookup: some offers in this batch may have a cross_source_key
+    # that matches an existing canonical row owned by a different source (e.g. a TEEE
+    # row already stored, and now we are loading the same offer from EEPP).  In that
+    # case we must NOT insert a second job_offers row; instead we resolve the existing
+    # id/fingerprint and add it to fingerprint_to_id so that upsert_job_offer_sources
+    # can correctly set job_offer_id on the new source row.
+    incoming_cross_keys = [
+        r["cross_source_key"]
+        for r in rows
+        if r.get("cross_source_key") is not None
+    ]
+    # fingerprint → (id, cross_source_key) for already-stored rows
+    existing_by_cross_key: dict[str, tuple[UUID, str]] = {}
+    if incoming_cross_keys:
+        lookup = await session.execute(
+            select(JobOffer.id, JobOffer.fingerprint, JobOffer.cross_source_key).where(
+                JobOffer.cross_source_key.in_(incoming_cross_keys)
+            )
+        )
+        for existing_id, existing_fp, existing_csk in lookup:
+            existing_by_cross_key[existing_csk] = (existing_id, existing_fp)
+
+    # Partition: rows that map to an existing cross-source canonical row are
+    # resolved immediately; the rest go through the normal INSERT path.
+    fingerprint_to_id: dict[str, UUID] = {}
+    rows_to_insert: list[dict] = []
+    for row in rows:
+        csk = row.get("cross_source_key")
+        if csk and csk in existing_by_cross_key:
+            existing_id, existing_fp = existing_by_cross_key[csk]
+            if existing_fp != row["fingerprint"]:
+                # Different source owns the canonical row — reuse it.
+                LOGGER.debug(
+                    "Cross-source match: fingerprint %s -> existing row %s (cross_source_key=%s)",
+                    row["fingerprint"], existing_id, csk,
+                )
+                fingerprint_to_id[row["fingerprint"]] = existing_id
+                continue
+        rows_to_insert.append(row)
+
+    cross_matched = len(rows) - len(rows_to_insert)
+    if cross_matched:
+        LOGGER.info("Cross-source pre-lookup matched %d offer(s) to existing canonical rows", cross_matched)
+
+    if not rows_to_insert:
+        return fingerprint_to_id
+
+    rows = rows_to_insert
+
     # asyncpg uses a signed Int16 for the Bind message param count, giving
     # a practical maximum of 32_767 parameters per statement. Compute a
     # conservative chunk size dynamically based on the number of columns per
     # row to avoid ever exceeding that limit regardless of schema changes.
     MAX_PARAMS = 32767
-    fingerprint_to_id: dict[str, UUID] = {}
     # Determine number of parameters per row (all rows are dicts with same keys)
     params_per_row = len(rows[0])
     # Reserve one parameter as safety margin
@@ -123,6 +171,7 @@ async def upsert_job_offers(
                 "start_date":   case((higher_or_equal, inc.start_date),   else_=cur.start_date),
                 "close_date":   case((higher_or_equal, inc.close_date),   else_=cur.close_date),
                 "conv_type":    case((higher_or_equal, inc.conv_type),    else_=cur.conv_type),
+                "cross_source_key": case((higher_or_equal, inc.cross_source_key), else_=cur.cross_source_key),
                 "updated_at":   case((higher_or_equal, func.now()),       else_=cur.updated_at),
             },
         ).returning(JobOffer.id, JobOffer.fingerprint)

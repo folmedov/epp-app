@@ -1,7 +1,7 @@
-"""CLI helper to fetch TEEE offers and persist them in Neon.
+"""CLI helper to fetch EEPP offers and persist them in Neon.
 
 Usage:
-    PYTHONPATH=. python scripts/load_teee.py [--state STATE,...] [--batch N] [--dry-run] [--out file.json]
+    PYTHONPATH=. python scripts/load_eepp.py [--state STATE,...] [--batch N] [--dry-run] [--out file.json]
 
 Behavior:
   - By default the script writes validated offers to the DB configured by
@@ -23,7 +23,7 @@ from pydantic import ValidationError
 from src.core.schemas import JobOfferSchema
 from src.database.repository import upsert_job_offers, upsert_job_offer_sources
 from src.database.session import get_session
-from src.ingestion.teee_client import TEEEClient
+from src.ingestion.eepp_client import EEPPClient
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s", datefmt="%Y-%m-%dT%H:%M:%S")
@@ -34,7 +34,6 @@ for noisy in ("sqlalchemy.engine", "sqlalchemy.engine.Engine", "asyncpg", "sqlal
     logging.getLogger(noisy).setLevel(logging.WARNING)
 
 
-# Fields accepted by JobOfferSchema (used to filter normalized dicts)
 _SCHEMA_FIELDS = {
     "source",
     "state",
@@ -67,27 +66,37 @@ def _to_schema(raw: Dict[str, Any]) -> JobOfferSchema | None:
         return None
 
 
-async def _main(batch: int, out: Optional[Path], states: Optional[List[str]] = None, dry_run: bool = False) -> None:
-    client = TEEEClient()
+async def _main(
+    states: Optional[List[str]],
+    out: Optional[Path],
+    dry_run: bool = False,
+) -> None:
+    client = EEPPClient()
     results: List[Dict[str, Any]] = []
 
     states = states or ["all"]
     if "all" in states:
         results.extend(await client.fetch_all())
     else:
-        tasks = [asyncio.create_task(client._fetch_state(st, size=batch)) for st in states]
+        tasks = []
+        for st in states:
+            if st == "postulacion":
+                tasks.append(asyncio.create_task(client.fetch_postulacion()))
+            elif st == "evaluacion":
+                tasks.append(asyncio.create_task(client.fetch_evaluacion()))
+            else:
+                LOGGER.warning("Unknown EEPP state %r — skipping", st)
         chunks = await asyncio.gather(*tasks)
         for chunk in chunks:
             results.extend(chunk)
 
-    LOGGER.info("Fetched %d offers from TEEE (states=%s)", len(results), states)
+    LOGGER.info("Fetched %d offers from EEPP (states=%s)", len(results), states)
 
     if out:
         with out.open("w", encoding="utf-8") as fh:
-            json.dump(results, fh, ensure_ascii=False, indent=2)
+            json.dump(results, fh, ensure_ascii=False, indent=2, default=str)
         LOGGER.info("Wrote results to %s", out)
 
-    # Validate and convert to schemas
     schemas: List[JobOfferSchema] = []
     for raw in results:
         s = _to_schema(raw)
@@ -99,7 +108,6 @@ async def _main(batch: int, out: Optional[Path], states: Optional[List[str]] = N
         LOGGER.info("No valid offers to write; exiting.")
         return
 
-    # Upsert into DB; when dry_run is True, rollback instead of committing.
     async with get_session() as session:
         try:
             fingerprint_to_id = await upsert_job_offers(session, schemas)
@@ -119,10 +127,6 @@ async def _main(batch: int, out: Optional[Path], states: Optional[List[str]] = N
                     source_count,
                 )
         except Exception as exc:
-            # Avoid flooding the terminal with enormous SQL + parameter dumps.
-            # Write the full traceback to a rotating log file and emit a
-            # concise error message pointing to that file. Exit with code 1
-            # (SystemExit) so the interpreter doesn't print the full traceback.
             import traceback
             import datetime
 
@@ -136,31 +140,21 @@ async def _main(batch: int, out: Optional[Path], states: Optional[List[str]] = N
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Load TEEE offers")
+    parser = argparse.ArgumentParser(description="Load EEPP offers")
     parser.add_argument(
         "--state",
         "--estado",
         dest="states",
         type=str,
         default="all",
-        help="Comma-separated list of states: postulacion,evaluacion,finalizadas or 'all'",
+        help="Comma-separated list of states: postulacion,evaluacion or 'all'",
     )
-    parser.add_argument("--batch", "--size", dest="batch", type=int, default=1000, help="Batch size to request from TEEE (per page)")
-    parser.add_argument("--dry-run", dest="dry_run", action="store_true", help="When present, perform upsert but rollback instead of commit")
+    parser.add_argument("--dry-run", dest="dry_run", action="store_true", help="Perform upsert but rollback instead of commit")
     parser.add_argument("--out", type=Path, help="Write JSON output to file")
-
     args = parser.parse_args()
 
-    # Parse comma-separated states into a list and validate values
-    raw_states = args.states or "all"
-    states_list = [s.strip() for s in raw_states.split(",") if s.strip()]
-    valid = {"postulacion", "evaluacion", "finalizadas", "all"}
-    for s in states_list:
-        if s not in valid:
-            parser.error(f"Invalid state: {s}. Allowed: postulacion,evaluacion,finalizadas,all")
-
-    # If 'all' present, treat as a special value handled by _main
-    asyncio.run(_main(args.batch, args.out, states_list, args.dry_run))
+    states = [s.strip() for s in args.states.split(",") if s.strip()]
+    asyncio.run(_main(states=states, out=args.out, dry_run=args.dry_run))
 
 
 if __name__ == "__main__":

@@ -18,7 +18,9 @@ from src.core.config import settings
 from src.processing.transformers import (
 	compute_fingerprint,
 	compute_content_fingerprint,
+	compute_cross_source_key,
 	extract_external_id,
+	parse_date,
 	parse_salary,
 )
 
@@ -127,8 +129,8 @@ class EEPPClient:
 
 		# EEPP exposes some ministry/date fields in its payload; include them when present
 		ministry = raw_offer.get("Ministerio")
-		start_date = raw_offer.get("Fecha Inicio") or raw_offer.get("Fecha Inicio Convocatoria")
-		close_date = raw_offer.get("Fecha Cierre Convocatoria")
+		start_date = parse_date(raw_offer.get("Fecha Inicio") or raw_offer.get("Fecha Inicio Convocatoria"))
+		close_date = parse_date(raw_offer.get("Fecha Cierre Convocatoria"))
 
 		content_fingerprint = compute_content_fingerprint(
 			title or "",
@@ -168,6 +170,7 @@ class EEPPClient:
 			"external_id_fallback_type": None,
 			"content_fingerprint": content_fingerprint,
 			"fingerprint": fingerprint,
+			"cross_source_key": compute_cross_source_key(external_id, False),
 			"ministry": ministry,
 			"start_date": start_date,
 			"close_date": close_date,

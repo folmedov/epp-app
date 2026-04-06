@@ -41,6 +41,7 @@ class JobOfferSchema(BaseModel):
     start_date: datetime | None = None
     close_date: datetime | None = None
     conv_type: str | None = None
+    cross_source_key: str | None = None
     raw_data: dict[str, Any]
     created_at: datetime | None = None
     updated_at: datetime | None = None

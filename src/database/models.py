@@ -45,6 +45,7 @@ class JobOffer(Base):
 	start_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=False), nullable=True)
 	close_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=False), nullable=True)
 	conv_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
+	cross_source_key: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
 	created_at: Mapped[datetime] = mapped_column(
 		DateTime(timezone=True),
 		server_default=func.now(),
