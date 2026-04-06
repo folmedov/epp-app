@@ -41,12 +41,17 @@
 - [x] **3.10 Populate job_offer_sources**: During the `load_teee` upsert flow, write one row per ingested offer to `job_offer_sources` (fields: `source`, `external_id`, `raw_data`, `original_state`) and resolve `job_offer_id` pointing to the canonical row in `job_offers`. Enables raw-data and external-ID auditability without requiring multi-source reconciliation. (details: docs/sprints/sprint_3_10_populate_sources.md)
 - [x] **3.11 Cross-source Matching**: Extend upsert flow to support multi-source ingestion (TEEE + EEPP). Link `job_offer_sources` rows across sources to the same canonical `job_offers` row via `external_id` or `content_fingerprint`. Includes `pending_verification` flag and reconciliation script. (details: docs/sprints/sprint_3_11_cross_source_matching.md)
 - [x] **3.12 Fix state-priority logic & fingerprint correctness**: Two-mode upsert (`--initial` / periodic), domain-scoped Stage-A fingerprint, `directoresparachile.cl ?c=` extraction, `junji.myfront.cl` returns `None`, asyncpg chunking for cross_source_key lookup, migration 0007 replacing `UNIQUE(source, external_id)` with `UNIQUE(job_offer_id, source)` on `job_offer_sources`. (details: docs/sprints/sprint_3_12_fix_state_priority.md)
-- [x] **3.13 Unified ingestion entrypoint**: `scripts/ingest_all.py` runs EEPP then TEEE loaders sequentially via subprocess; forwards `--initial` / `--dry-run`; exits 1 if any loader fails; second loader always runs regardless of first result. (details: docs/sprints/sprint_3_13_unified_entrypoint.md)
-- [ ] **3.14 Configure Periodic Ingestion**: Configure a policy to run periodic ingestion.
-- [ ] **3.15 Dokploy cron job configuration**: command, schedule, environment variables. Recommended schedule: 3×/day (morning / afternoon / night).
-- [ ] **3.16 State Observer / Reconciliation**: Add a periodic reconciliation job to compute canonical `state` from all sources (details: docs/sprints/sprint_3_13_reconciliation.md)
-- [ ] **3.17 Tests & Migration**: Add migration/backfill tooling and unit/integration tests for mapping, upsert, and reconciliation (details: docs/sprints/sprint_3_14_tests_migration.md)
+- [x] **3.13 Unified ingestion entrypoint**: `scripts/ingest_all.py` runs EEPP then TEEE loaders sequentially via subprocess; accepts `--policy daily|monthly`, `--initial`, `--dry-run`; exits 1 if any loader fails; second loader always runs regardless of first result. (details: docs/sprints/sprint_3_13_unified_entrypoint.md)
+- [x] **3.14 Configure Periodic Ingestion**: Define and configure two ingestion policies:
+  - **daily** (`--policy daily`): fetches `postulacion` + `evaluacion` only. Finalised offers do not change, so `finalizadas` is omitted from daily runs. Cron: once per day.
+  - **monthly** (`--policy monthly`): full sweep including `finalizadas` to catch any missed or anomalous offers. Cron: once per month.
+  - `--initial` bypasses both policies for the historical full load. (details: docs/sprints/sprint_3_14_periodic_ingestion.md)
+- [ ] **3.15 State Observer / Reconciliation**: Add a periodic reconciliation job to compute canonical `state` from all sources. Also include a **sample-based integrity check** that takes a small random subset of `job_offers` rows, re-fetches them from the source APIs, and compares key fields (state, salary, dates) to detect data drift between DB and upstream. (details: docs/sprints/sprint_3_13_reconciliation.md)
+- [ ] **3.16 Tests & Migration**: Add migration/backfill tooling and unit/integration tests for mapping, upsert, and reconciliation (details: docs/sprints/sprint_3_14_tests_migration.md)
 
-### 📊 Sprint 4: Analysis & Reporting
-- [ ] **4.1 Analytics Views**: Create SQL views in Postgres for salary averages and regional demand.
-- [ ] **4.2 Notification System**: Simple script to alert of new matches via Telegram/Email.
+### 🚀 Sprint 4: Deployment
+- [ ] **4.1 Dokploy cron job configuration**: command, schedule, environment variables. Recommended schedule: 3×/day (morning / afternoon / night).
+
+### 📊 Sprint 5: Analysis & Reporting
+- [ ] **5.1 Analytics Views**: Create SQL views in Postgres for salary averages and regional demand.
+- [ ] **5.2 Notification System**: Simple script to alert of new matches via Telegram/Email.
