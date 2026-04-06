@@ -154,6 +154,7 @@ class EEPPClient:
 			start_date=start_date,
 			conv_type=None,
 			close_date=close_date,
+			url=url or None,
 		)
 
 		return {
@@ -170,7 +171,7 @@ class EEPPClient:
 			"external_id_fallback_type": None,
 			"content_fingerprint": content_fingerprint,
 			"fingerprint": fingerprint,
-			"cross_source_key": compute_cross_source_key(external_id, False),
+			"cross_source_key": compute_cross_source_key(external_id, False, url=url or None),
 			"ministry": ministry,
 			"start_date": start_date,
 			"close_date": close_date,

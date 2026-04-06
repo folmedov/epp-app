@@ -83,7 +83,7 @@ class JobOfferSource(Base):
 		DateTime(timezone=True), server_default=func.now(), nullable=False
 	)
 
-	__table_args__ = (UniqueConstraint("source", "external_id"),)
+	__table_args__ = (UniqueConstraint("job_offer_id", "source", name="uq_job_offer_sources_job_offer_id_source"),)
 
 
 __all__ = ["Base", "JobOffer", "JobOfferSource"]

@@ -229,6 +229,7 @@ class TEEEClient:
 			start_date=start_date,
 			conv_type=conv_type,
 			close_date=close_date,
+			url=url,
 		)
 
 		# Include the Elasticsearch _id in raw_data for traceability
@@ -250,7 +251,7 @@ class TEEEClient:
 			"external_id_fallback_type": external_id_fallback_type,
 			"content_fingerprint": content_fingerprint,
 			"fingerprint": fingerprint,
-			"cross_source_key": compute_cross_source_key(external_id, external_id_generated),
+			"cross_source_key": compute_cross_source_key(external_id, external_id_generated, url=url or None),
 			"ministry": ministry,
 			"start_date": start_date,
 			"close_date": close_date,

@@ -53,9 +53,9 @@ identificador estable desde la URL de la oferta aplicando reglas por dominio:
 | Dominio                  | Extracción                                          | Notas |
 |--------------------------|-----------------------------------------------------|-------|
 | `empleospublicos.cl`     | Query param `?i=<id>`                               | |
-| `junji.myfront.cl`       | Segmento de path `/oferta-de-empleo/<id>/slug`      | |
+| `junji.myfront.cl`       | `None` — el portal reutiliza los mismos IDs numéricos para cargos distintos; no son únicos a nivel de concurso. Fuerza Stage-B. |
 | `*.trabajando.cl`        | Prefijo numérico en `/trabajo/<id>-slug`            | |
-| `directoresparachile.cl` | Query param `?i=<id>` **únicamente**                | Los stems de PDF (ej. `dee_18099`) no son únicos: el mismo archivo se reutiliza para convocatorias distintas en distintos años. Si `?i=` no está presente, se devuelve `None`. |
+| `directoresparachile.cl` | Query param `?c=<id>` (**concurso**, no `?i=`)      | `?i=` es el ID del cargo (compartido por múltiples concursos del mismo cargo). `?c=` identifica el concurso específico y es el identificador estable. Si `?c=` no está presente, se devuelve `None`. |
 | cualquier otro dominio   | `None`                                              | Fuerza Stage-B |
 
 Cuando `extract_external_id` devuelve `None`, el ID provisional se genera en el
@@ -107,16 +107,37 @@ de un fingerprint de contenido.
 
 ### 3.2 Stage A — External ID fingerprint
 
-Función: `compute_fingerprint(..., external_id=<id>, external_id_generated=False)`
+Función: `compute_fingerprint(..., external_id=<id>, external_id_generated=False, url=<url>)`
 
 ```python
-raw = f"source_id|{source}|{external_id}"
+domain = urlparse(url).netloc.removeprefix("www.")  # "" si url es None
+raw = f"source_id|{source}|{domain}|{external_id}"
 fingerprint = hashlib.md5(raw.encode("utf-8")).hexdigest()  # 32 hex chars
 ```
 
-El prefijo `source` hace que el fingerprint sea único por fuente (dos proveedores
-con el mismo ID numérico generan fingerprints distintos), lo que evita falsos
-positivos en Stage A.
+El prefijo `source` garantiza que TEEE y EEPP con el mismo `external_id`
+producen fingerprints distintos (su vinculación se realiza via `cross_source_key`,
+no fusionando fingerprints).
+
+**Por qué se incluye el dominio (Sprint 3.12):** El campo `ID Conv` de TEEE es
+el ID de convocatoria del portal `empleospublicos.cl`. Cuando TEEE indexa una
+oferta de `directoresparachile.cl`, el `ID Conv` almacenado es el mismo número
+de convocatoria EEPP, pero la oferta es diferente. Sin el dominio, dos ofertas
+de TEEE con `ID Conv=11293` pero URLs distintas (`directoresparachile.cl?c=11293`
+vs `empleospublicos.cl?i=11293`) producirían `MD5("source_id|TEEE|11293")` —
+el mismo fingerprint — y se fusionarían incorrectamente en un único canónico.
+
+Incluir el dominio de la URL resuelve la colisión:
+
+```
+MD5("source_id|TEEE|directoresparachile.cl|11293")  ≠
+MD5("source_id|TEEE|empleospublicos.cl|11293")
+```
+
+> **Impacto operativo:** Cambiar la fórmula de Stage A invalida todos los
+> fingerprints existentes. Si se modifica la fórmula, se debe truncar las tablas
+> `job_offers` y `job_offer_sources` y ejecutar `--initial` para recargar con
+> los nuevos hashes.
 
 ### 3.3 Stage B — Content fingerprint
 
@@ -189,10 +210,19 @@ Estado actual: la tabla existe en el esquema y `scripts/migrate_raw_to_sources.p
 puede poblarla desde `job_offers.raw_data` (backfill idempotente). El loader
 principal (`scripts/load_teee.py`) **no escribe en esta tabla** en el flujo normal.
 
-La tabla define `UniqueConstraint("source", "external_id")`: dos filas del mismo
-proveedor no pueden compartir el mismo `external_id`. Un intento de inserción
-duplicada sin `ON CONFLICT DO NOTHING` producirá un error de integridad en la
-base de datos; el pipeline debe deduplicar antes de llegar al insert.
+La tabla define `UniqueConstraint("job_offer_id", "source")`: cada fuente puede
+tener como máximo una fila por oferta canónica. El `external_id` ya **no** forma
+parte del constraint (migración 0007).
+
+**Por qué se cambió el constraint (Sprint 3.12 / migración 0007):** El constraint
+anterior `UNIQUE(source, external_id)` asumía que cada `external_id` era único
+por fuente. Con el fingerprint domain-scoped, el mismo `ID Conv` puede mapear a
+dos canónicos distintos (portales distintos). Solo una source row podía existir
+por `(TEEE, 11293)`, dejando la segunda oferta huérfana — sin fila en
+`job_offer_sources`. El constraint `(job_offer_id, source)` es semánticamente
+correcto: "esta fuente contribuyó a esta oferta canónica", y permite que el
+mismo `external_id` aparezca en múltiples source rows cuando pertenecen a
+canónicos distintos.
 
 > **Precaución de backfill:** calcular `content_fingerprint` directamente en SQL
 > es frágil porque SQL no replica fielmente la normalización Python. Usar siempre
@@ -308,24 +338,25 @@ Stage-B en el fingerprint canónico.
 Las siguientes funcionalidades fueron diseñadas pero **no están implementadas**
 en el código actual.
 
-### 10.1 Cross-source fingerprint (Stage A sin prefijo de fuente)
+### 10.1 `cross_source_key` — vinculación TEEE ↔ EEPP (implementado en Sprint 3.11)
 
-Permitiría unir registros de distintas fuentes (TEEE + EEPP) cuando ambos
-comparten el mismo `external_id`:
+Las filas de `job_offers` de distintas fuentes para la misma oferta real se
+vinculan mediante `cross_source_key`, **no** fusionando fingerprints.
 
 ```python
-# Activable vía parámetro cross_match=True (no implementado)
-raw = f"source_id|{external_id}"   # sin {source}
-fingerprint = hashlib.md5(raw.encode()).hexdigest()
+domain = urlparse(url).netloc.removeprefix("www.")
+raw = f"cross|{domain}|{external_id}"
+cross_source_key = hashlib.md5(raw.encode()).hexdigest()
 ```
 
-Riesgo conocido: si dos proveedores usan el mismo esquema de IDs con semánticas
-distintas, se producirían falsos positivos.
+Cuando el loader detecta que la `cross_source_key` entrante coincide con una
+fila ya existente de distinta fuente, **no inserta un nuevo canónico**; en cambio
+reutiliza el `job_offer_id` existente y crea únicamente la fila en
+`job_offer_sources`. Esto mantiene un único canónico compartido entre TEEE y EEPP
+para la misma convocatoria.
 
-> **Precaución operativa:** Si esta funcionalidad se expone como opción CLI
-> (`--cross-match-external-id`), debe habilitarse con cautela. Proveedores cuyos
-> rangos de IDs se solapan con semánticas distintas producirían merges incorrectos;
-> revertirlos requiere intervención manual en la base de datos.
+El dominio en la fórmula previene la colisión análoga a Stage A: dos portales que
+usen el mismo número de ID para ofertas distintas no compartirán `cross_source_key`.
 
 ### 10.2 `per_source_fingerprint` en `job_offer_sources`
 
@@ -346,21 +377,7 @@ UPDATE job_offer_sources SET pending_verification = true WHERE source = 'EEPP';
 
 Esto reflejaría la política de "TEEE como fuente canónica" a nivel de datos.
 
-### 10.4 Escritura continua de `job_offer_sources` en el flujo de ingestión
-
-Actualmente `job_offer_sources` solo se puebla via backfill
-(`scripts/migrate_raw_to_sources.py`). Se propone modificar `upsert_job_offers`
-o crear un paso adicional para insertar la fila de fuente durante el flujo
-normal de carga.
-
-### 10.5 Script de reconciliación cross-source
-
-`scripts/reconcile_sources.py` (referenciado en docs pero no creado) que
-itere filas en `job_offer_sources` con `job_offer_id = NULL` o
-`pending_verification = true` e intente ligarlas a canónicos por
-`content_fingerprint` o por `external_id` proveniente de TEEE.
-
-### 10.6 Pipeline de normalización de texto completo
+### 10.4 Pipeline de normalización de texto completo
 
 Implementar en `compute_content_fingerprint` la secuencia completa sugerida por
 la especificación original:
@@ -380,11 +397,12 @@ produzcan el mismo fingerprint Stage-B y se consoliden en el mismo canónico.
 
 | Archivo | Propósito |
 |---------|-----------|
-| `src/processing/transformers.py` | `extract_external_id`, `compute_content_fingerprint`, `compute_fingerprint` |
-| `src/database/repository.py` | `upsert_job_offers` (deduplicación, chunking, ON CONFLICT) |
+| `src/processing/transformers.py` | `extract_external_id`, `compute_content_fingerprint`, `compute_fingerprint`, `compute_cross_source_key` |
+| `src/database/repository.py` | `upsert_job_offers`, `upsert_job_offer_sources` (deduplicación, chunking, ON CONFLICT) |
 | `src/database/models.py` | `JobOffer`, `JobOfferSource` (esquema de tablas) |
 | `src/core/schemas.py` | `JobOfferSchema` (DTO con campos de transporte) |
 | `src/ingestion/teee_client.py` | Normalización del hit TEEE, asignación de `external_id` |
-| `scripts/load_teee.py` | Loader principal — fetching + transformación + upsert |
+| `scripts/load_teee.py` | Loader principal (TEEE) — fetching + transformación + upsert |
+| `scripts/load_eepp.py` | Loader EEPP — fetching + transformación + upsert |
 | `scripts/report_teee_duplicates.py` | Auditoría de grupos duplicados por fingerprint |
-| `scripts/migrate_raw_to_sources.py` | Backfill de `job_offer_sources` desde `job_offers` |
+| `migrations/versions/0007_fix_jos_unique_constraint.py` | Migración que reemplaza `UNIQUE(source, external_id)` por `UNIQUE(job_offer_id, source)` |

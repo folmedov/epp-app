@@ -40,8 +40,12 @@
   - **Documentation consolidation**: Merged `fingerprint_generation.md` and `teee_external_id_policy.md` into `docs/design/deduplication.md` (old files removed). Added missing coverage: state priority policy, normalization pipeline gap, `UniqueConstraint` on `job_offer_sources`, MD5 risk notes.
 - [x] **3.10 Populate job_offer_sources**: During the `load_teee` upsert flow, write one row per ingested offer to `job_offer_sources` (fields: `source`, `external_id`, `raw_data`, `original_state`) and resolve `job_offer_id` pointing to the canonical row in `job_offers`. Enables raw-data and external-ID auditability without requiring multi-source reconciliation. (details: docs/sprints/sprint_3_10_populate_sources.md)
 - [x] **3.11 Cross-source Matching**: Extend upsert flow to support multi-source ingestion (TEEE + EEPP). Link `job_offer_sources` rows across sources to the same canonical `job_offers` row via `external_id` or `content_fingerprint`. Includes `pending_verification` flag and reconciliation script. (details: docs/sprints/sprint_3_11_cross_source_matching.md)
-- [ ] **3.12 State Observer / Reconciliation**: Add a periodic reconciliation job to compute canonical `state` from all sources (details: docs/sprints/sprint_3_12_reconciliation.md)
-- [ ] **3.13 Tests & Migration**: Add migration/backfill tooling and unit/integration tests for mapping, upsert, and reconciliation (details: docs/sprints/sprint_3_13_tests_migration.md)
+- [x] **3.12 Fix state-priority logic & fingerprint correctness**: Two-mode upsert (`--initial` / periodic), domain-scoped Stage-A fingerprint, `directoresparachile.cl ?c=` extraction, `junji.myfront.cl` returns `None`, asyncpg chunking for cross_source_key lookup, migration 0007 replacing `UNIQUE(source, external_id)` with `UNIQUE(job_offer_id, source)` on `job_offer_sources`. (details: docs/sprints/sprint_3_12_fix_state_priority.md)
+- [ ] **3.13 Unified ingestion entrypoint**: unified ingestion entrypoint `scripts/ingest_all.py` that runs both EEPP and TEEE loaders (`--state all`) sequentially with proper exit codes and structured logging
+- [ ] **3.14 Configure Periodic Ingestion**: Configure a policy to run periodic ingestion.
+- [ ] **3.15 Dokploy cron job configuration**: command, schedule, environment variables. Recommended schedule: 3×/day (morning / afternoon / night).
+- [ ] **3.16 State Observer / Reconciliation**: Add a periodic reconciliation job to compute canonical `state` from all sources (details: docs/sprints/sprint_3_13_reconciliation.md)
+- [ ] **3.17 Tests & Migration**: Add migration/backfill tooling and unit/integration tests for mapping, upsert, and reconciliation (details: docs/sprints/sprint_3_14_tests_migration.md)
 
 ### 📊 Sprint 4: Analysis & Reporting
 - [ ] **4.1 Analytics Views**: Create SQL views in Postgres for salary averages and regional demand.

@@ -15,29 +15,49 @@ from src.database.models import JobOffer, JobOfferSource
 
 LOGGER = logging.getLogger(__name__)
 
-# State priority: lower integer = higher priority.
-# A conflicting row only updates mutable fields when the incoming state has
-# equal or higher priority than the currently stored state.
-_STATE_PRIORITY = {"postulacion": 1, "evaluacion": 2}
+# State priority: higher integer = more advanced stage.
+# A conflicting row only updates mutable fields when the incoming state is
+# at the same stage or further along than the currently stored state.
+# This allows forward transitions (postulacion → evaluacion → finalizada)
+# while preventing regressions (e.g. a stale postulacion batch must not
+# overwrite a row already stored as evaluacion or finalizada).
+_STATE_PRIORITY = {"postulacion": 1, "evaluacion": 2, "finalizada": 3}
 
 
 def _state_priority(state_col):
-    """Return a SQL CASE expression mapping state → priority int (lower = higher)."""
+    """Return a SQL CASE expression mapping state → priority int (higher = more advanced)."""
     return case(
         (state_col == "postulacion", 1),
-        (state_col == "evaluacion", 2),
-        else_=3,
+        (state_col == "evaluacion",  2),
+        (state_col == "finalizada",  3),
+        else_=0,  # unknown state loses to everything
     )
 
 
 async def upsert_job_offers(
     session: AsyncSession,
     offers: list[JobOfferSchema],
+    mode: str = "periodic",
 ) -> dict[str, UUID]:
     """Upsert a list of job offers into the job_offers table.
 
     Uses ``ON CONFLICT (fingerprint) DO UPDATE`` to keep mutable fields
     current on every run. Offers with ``fingerprint=None`` are skipped.
+
+    ``mode`` controls the conflict resolution strategy:
+
+    * ``'periodic'`` (default): forward-only state transitions.  A stored row
+      is only updated when the incoming state is at the same lifecycle stage or
+      further along (``postulacion → evaluacion → finalizada``).  This prevents
+      regressions across cron runs while still handling gaps — e.g. an offer
+      that went directly from ``postulacion`` to ``finalizada`` during a
+      downtime period is correctly updated on the next run.
+
+    * ``'initial'``: always overwrite on conflict (no state guard).  Designed
+      for the first-time bulk load where callers load states in ascending
+      lifecycle order (``finalizadas`` first, ``postulacion`` last) so the
+      most current/active state wins any fingerprint conflict.  Each state
+      MUST be committed as a separate transaction by the caller.
 
     Returns a mapping of ``fingerprint → job_offer_id`` for every row
     inserted or updated, so callers can resolve the FK when writing
@@ -78,8 +98,8 @@ async def upsert_job_offers(
         filtered = {k: v for k, v in row.items() if k in allowed_cols}
         current = seen.get(offer.fingerprint)  # type: ignore[arg-type]
         if current is None or (
-            _STATE_PRIORITY.get(filtered.get("state", ""), 3)
-            <= _STATE_PRIORITY.get(current.get("state", ""), 3)
+            _STATE_PRIORITY.get(filtered.get("state", ""), 0)
+            >= _STATE_PRIORITY.get(current.get("state", ""), 0)
         ):
             seen[offer.fingerprint] = filtered  # type: ignore[index]
     rows = list(seen.values())
@@ -101,13 +121,17 @@ async def upsert_job_offers(
     # fingerprint → (id, cross_source_key) for already-stored rows
     existing_by_cross_key: dict[str, tuple[UUID, str]] = {}
     if incoming_cross_keys:
-        lookup = await session.execute(
-            select(JobOffer.id, JobOffer.fingerprint, JobOffer.cross_source_key).where(
-                JobOffer.cross_source_key.in_(incoming_cross_keys)
+        # Chunk the IN-list to stay under asyncpg's 32767-parameter limit.
+        _CSK_CHUNK = 32767
+        for _offset in range(0, len(incoming_cross_keys), _CSK_CHUNK):
+            _chunk_keys = incoming_cross_keys[_offset : _offset + _CSK_CHUNK]
+            lookup = await session.execute(
+                select(JobOffer.id, JobOffer.fingerprint, JobOffer.cross_source_key).where(
+                    JobOffer.cross_source_key.in_(_chunk_keys)
+                )
             )
-        )
-        for existing_id, existing_fp, existing_csk in lookup:
-            existing_by_cross_key[existing_csk] = (existing_id, existing_fp)
+            for existing_id, existing_fp, existing_csk in lookup:
+                existing_by_cross_key[existing_csk] = (existing_id, existing_fp)
 
     # Partition: rows that map to an existing cross-source canonical row are
     # resolved immediately; the rest go through the normal INSERT path.
@@ -157,24 +181,47 @@ async def upsert_job_offers(
         stmt = insert(JobOffer).values(chunk)
         inc = stmt.excluded                   # incoming (excluded) row
         cur = JobOffer.__table__.c            # current row in DB
-        # Only update when the incoming state has equal or higher priority.
-        # This prevents a later-loaded "finalizada" batch from overwriting
-        # records already stored as "postulacion" or "evaluacion".
-        higher_or_equal = _state_priority(inc.state) <= _state_priority(cur.state)
-        stmt = stmt.on_conflict_do_update(
-            index_elements=["fingerprint"],
-            set_={
-                "state":        case((higher_or_equal, inc.state),        else_=cur.state),
-                "url":          case((higher_or_equal, inc.url),          else_=cur.url),
-                "salary_bruto": case((higher_or_equal, inc.salary_bruto), else_=cur.salary_bruto),
-                "ministry":     case((higher_or_equal, inc.ministry),     else_=cur.ministry),
-                "start_date":   case((higher_or_equal, inc.start_date),   else_=cur.start_date),
-                "close_date":   case((higher_or_equal, inc.close_date),   else_=cur.close_date),
-                "conv_type":    case((higher_or_equal, inc.conv_type),    else_=cur.conv_type),
-                "cross_source_key": case((higher_or_equal, inc.cross_source_key), else_=cur.cross_source_key),
-                "updated_at":   case((higher_or_equal, func.now()),       else_=cur.updated_at),
-            },
-        ).returning(JobOffer.id, JobOffer.fingerprint)
+
+        if mode == "initial":
+            # Initial load: always overwrite on conflict.  The caller is
+            # responsible for loading states in ascending lifecycle order
+            # (finalizadas first, postulacion last) so that the most
+            # current/active state wins any fingerprint collision.
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["fingerprint"],
+                set_={
+                    "state":            inc.state,
+                    "url":              inc.url,
+                    "salary_bruto":     inc.salary_bruto,
+                    "ministry":         inc.ministry,
+                    "start_date":       inc.start_date,
+                    "close_date":       inc.close_date,
+                    "conv_type":        inc.conv_type,
+                    "cross_source_key": inc.cross_source_key,
+                    "updated_at":       func.now(),
+                },
+            ).returning(JobOffer.id, JobOffer.fingerprint)
+        else:
+            # Periodic updates: forward-only state transitions.  A stored row
+            # is only updated when the incoming state is at the same lifecycle
+            # stage or further along, preventing regressions while still
+            # handling gaps (e.g. postulacion → finalizada in one hop).
+            higher_or_equal = _state_priority(inc.state) >= _state_priority(cur.state)
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["fingerprint"],
+                set_={
+                    "state":        case((higher_or_equal, inc.state),        else_=cur.state),
+                    "url":          case((higher_or_equal, inc.url),          else_=cur.url),
+                    "salary_bruto": case((higher_or_equal, inc.salary_bruto), else_=cur.salary_bruto),
+                    "ministry":     case((higher_or_equal, inc.ministry),     else_=cur.ministry),
+                    "start_date":   case((higher_or_equal, inc.start_date),   else_=cur.start_date),
+                    "close_date":   case((higher_or_equal, inc.close_date),   else_=cur.close_date),
+                    "conv_type":    case((higher_or_equal, inc.conv_type),    else_=cur.conv_type),
+                    "cross_source_key": case((higher_or_equal, inc.cross_source_key), else_=cur.cross_source_key),
+                    "updated_at":   case((higher_or_equal, func.now()),       else_=cur.updated_at),
+                },
+            ).returning(JobOffer.id, JobOffer.fingerprint)
+
         result = await session.execute(stmt)
         for row in result:
             fingerprint_to_id[row.fingerprint] = row.id
@@ -194,11 +241,12 @@ async def upsert_job_offer_sources(
     ``upsert_job_offers()``. Offers whose fingerprint is not in the mapping
     are skipped with a warning.
 
-    For offers with a stable ``external_id``, uses
-    ``ON CONFLICT (source, external_id) DO UPDATE`` so re-running the loader
-    is idempotent. For offers with ``external_id=None`` a new audit row is
-    inserted on every run (the ``_elastic_id`` stored in ``raw_data`` provides
-    per-run traceability).
+    Uses ``ON CONFLICT (job_offer_id, source) DO UPDATE`` so re-running the
+    loader is idempotent.  The conflict target is the canonical job offer +
+    source pair, which allows the same ``external_id`` to legitimately appear
+    in multiple source rows when those rows belong to different canonical
+    ``job_offer`` rows (e.g. two TEEE offers sharing the same ``ID Conv`` but
+    originating from different portals).
 
     Returns the number of rows affected.
     """
@@ -225,27 +273,21 @@ async def upsert_job_offer_sources(
     if not rows:
         return 0
 
-    # Deduplicate by (source, external_id) for rows that have a non-NULL external_id.
-    # A single batch can contain the same offer across multiple states (e.g. when
-    # --state all is used); PostgreSQL raises CardinalityViolationError if ON CONFLICT
-    # DO UPDATE would touch the same row twice within one statement.
-    # For NULL external_id rows there is no conflict target, so no dedup is needed.
-    seen_source_key: dict[tuple[str, str], dict] = {}
-    deduped_rows: list[dict] = []
+    # Deduplicate by (job_offer_id, source) — the same conflict target used by
+    # ON CONFLICT below.  A single batch can contain the same canonical offer
+    # more than once (e.g. when --state all is used); PostgreSQL raises
+    # CardinalityViolationError if ON CONFLICT DO UPDATE would touch the same
+    # row twice within one statement.
+    seen_jo_source: dict[tuple[str, str], dict] = {}
     for row in rows:
-        ext_id = row.get("external_id")
-        if ext_id is None:
-            deduped_rows.append(row)
-            continue
-        key = (row["source"], ext_id)
-        existing = seen_source_key.get(key)
+        key = (str(row["job_offer_id"]), row["source"])
+        existing = seen_jo_source.get(key)
         if existing is None or (
             _STATE_PRIORITY.get(row.get("original_state", ""), 3)
             <= _STATE_PRIORITY.get(existing.get("original_state", ""), 3)
         ):
-            seen_source_key[key] = row
-    deduped_rows.extend(seen_source_key.values())
-    rows = deduped_rows
+            seen_jo_source[key] = row
+    rows = list(seen_jo_source.values())
 
     MAX_PARAMS = 32767
     params_per_row = len(rows[0])
@@ -256,12 +298,10 @@ async def upsert_job_offer_sources(
         chunk = rows[offset : offset + safe_chunk]
         stmt = insert(JobOfferSource).values(chunk)
         inc = stmt.excluded
-        # ON CONFLICT only fires for non-NULL external_id pairs (PostgreSQL
-        # treats NULLs as distinct, so NULL external_id rows never conflict).
         stmt = stmt.on_conflict_do_update(
-            index_elements=["source", "external_id"],
+            index_elements=["job_offer_id", "source"],
             set_={
-                "job_offer_id": inc.job_offer_id,
+                "external_id": inc.external_id,
                 "raw_data": inc.raw_data,
                 "original_state": inc.original_state,
                 "ingested_at": func.now(),

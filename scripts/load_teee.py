@@ -67,10 +67,91 @@ def _to_schema(raw: Dict[str, Any]) -> JobOfferSchema | None:
         return None
 
 
-async def _main(batch: int, out: Optional[Path], states: Optional[List[str]] = None, dry_run: bool = False) -> None:
+async def _run_upsert(
+    session_ctx,
+    schemas: List[JobOfferSchema],
+    mode: str,
+    dry_run: bool,
+    label: str,
+) -> tuple[int, int]:
+    """Run a single upsert+source write within a managed session.
+
+    Returns (offer_count, source_count).
+    """
+    import datetime
+    from pathlib import Path
+    async with session_ctx as session:
+        try:
+            fingerprint_to_id = await upsert_job_offers(session, schemas, mode=mode)
+            source_count = await upsert_job_offer_sources(session, schemas, fingerprint_to_id)
+            if dry_run:
+                await session.rollback()
+                LOGGER.info(
+                    "Dry run — rolled back %d offer(s), %d source row(s) [%s]",
+                    len(fingerprint_to_id), source_count, label,
+                )
+            else:
+                await session.commit()
+                LOGGER.info(
+                    "Committed %d offer(s) and %d source row(s) to DB [%s]",
+                    len(fingerprint_to_id), source_count, label,
+                )
+            return len(fingerprint_to_id), source_count
+        except Exception as exc:
+            import traceback
+            logs_dir = Path("logs")
+            logs_dir.mkdir(exist_ok=True)
+            ts = datetime.datetime.utcnow().strftime("%Y%m%d%H%M%S")
+            log_path = logs_dir / f"loader_error_{ts}.log"
+            log_path.write_text(traceback.format_exc(), encoding="utf-8")
+            LOGGER.error("DB write failed: %s. Full traceback saved to %s", exc, log_path)
+            raise SystemExit(1)
+
+
+async def _main(batch: int, out: Optional[Path], states: Optional[List[str]] = None, dry_run: bool = False, initial: bool = False) -> None:
     client = TEEEClient()
     results: List[Dict[str, Any]] = []
 
+    if initial:
+        # Initial bulk load: fetch and commit each state as a SEPARATE transaction
+        # in ascending lifecycle order so that the most current/active state
+        # (postulacion, loaded last) wins any fingerprint conflict.
+        LOGGER.info("Running in INITIAL mode — loading states: finalizadas → evaluacion → postulacion")
+        total_offers = total_sources = 0
+        for state_name in ["finalizadas", "evaluacion", "postulacion"]:
+            state_results = await client._fetch_state(state_name, size=batch)
+
+            if out:
+                results.extend(state_results)  # collect for optional JSON dump
+
+            state_schemas: List[JobOfferSchema] = []
+            for raw in state_results:
+                s = _to_schema(raw)
+                if s is not None:
+                    state_schemas.append(s)
+
+            LOGGER.info(
+                "state=%s: fetched %d, validated %d",
+                state_name, len(state_results), len(state_schemas),
+            )
+            if not state_schemas:
+                continue
+
+            n_offers, n_sources = await _run_upsert(
+                get_session(), state_schemas, mode="initial", dry_run=dry_run, label=state_name
+            )
+            total_offers += n_offers
+            total_sources += n_sources
+
+        LOGGER.info("Initial load complete: %d offer(s), %d source row(s) total", total_offers, total_sources)
+
+        if out:
+            with out.open("w", encoding="utf-8") as fh:
+                json.dump(results, fh, ensure_ascii=False, indent=2)
+            LOGGER.info("Wrote raw results to %s", out)
+        return
+
+    # Periodic update mode (default) ─────────────────────────────────────────
     states = states or ["all"]
     if "all" in states:
         results.extend(await client.fetch_all())
@@ -100,39 +181,7 @@ async def _main(batch: int, out: Optional[Path], states: Optional[List[str]] = N
         return
 
     # Upsert into DB; when dry_run is True, rollback instead of committing.
-    async with get_session() as session:
-        try:
-            fingerprint_to_id = await upsert_job_offers(session, schemas)
-            source_count = await upsert_job_offer_sources(session, schemas, fingerprint_to_id)
-            if dry_run:
-                await session.rollback()
-                LOGGER.info(
-                    "Dry run enabled — rolled back. Would have upserted %d offer(s), %d source row(s)",
-                    len(fingerprint_to_id),
-                    source_count,
-                )
-            else:
-                await session.commit()
-                LOGGER.info(
-                    "Committed %d offer(s) and %d source row(s) to DB",
-                    len(fingerprint_to_id),
-                    source_count,
-                )
-        except Exception as exc:
-            # Avoid flooding the terminal with enormous SQL + parameter dumps.
-            # Write the full traceback to a rotating log file and emit a
-            # concise error message pointing to that file. Exit with code 1
-            # (SystemExit) so the interpreter doesn't print the full traceback.
-            import traceback
-            import datetime
-
-            logs_dir = Path("logs")
-            logs_dir.mkdir(exist_ok=True)
-            ts = datetime.datetime.utcnow().strftime("%Y%m%d%H%M%S")
-            log_path = logs_dir / f"loader_error_{ts}.log"
-            log_path.write_text(traceback.format_exc(), encoding="utf-8")
-            LOGGER.error("DB write failed: %s. Full traceback saved to %s", exc, log_path)
-            raise SystemExit(1)
+    await _run_upsert(get_session(), schemas, mode="periodic", dry_run=dry_run, label=",".join(states))
 
 
 def main() -> None:
@@ -148,6 +197,17 @@ def main() -> None:
     parser.add_argument("--batch", "--size", dest="batch", type=int, default=1000, help="Batch size to request from TEEE (per page)")
     parser.add_argument("--dry-run", dest="dry_run", action="store_true", help="When present, perform upsert but rollback instead of commit")
     parser.add_argument("--out", type=Path, help="Write JSON output to file")
+    parser.add_argument(
+        "--initial",
+        dest="initial",
+        action="store_true",
+        help=(
+            "Initial bulk load mode: fetch all states in lifecycle order "
+            "(finalizadas → evaluacion → postulacion) and commit each as a "
+            "separate transaction with always-overwrite semantics. "
+            "The --state flag is ignored when --initial is set."
+        ),
+    )
 
     args = parser.parse_args()
 
@@ -160,7 +220,7 @@ def main() -> None:
             parser.error(f"Invalid state: {s}. Allowed: postulacion,evaluacion,finalizadas,all")
 
     # If 'all' present, treat as a special value handled by _main
-    asyncio.run(_main(args.batch, args.out, states_list, args.dry_run))
+    asyncio.run(_main(args.batch, args.out, states_list, args.dry_run, initial=args.initial))
 
 
 if __name__ == "__main__":

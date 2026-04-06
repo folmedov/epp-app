@@ -78,17 +78,21 @@ def extract_external_id(url: str | None) -> str | None:
         except ValueError:
             pass
 
-    # directoresparachile.cl → only use `?i=<id>` query param as stable id.
-    # PDF filename stems (e.g. dee_18099) are NOT unique — the same file is
-    # reused across different concursos at different times, so treating the stem
-    # as external_id causes false Stage-A collisions.  When `?i=` is absent,
-    # returning None forces Stage-B (content fingerprint) which correctly
-    # differentiates records by title, institution, and dates.
+    # directoresparachile.cl — two URL formats:
+    #   1. convPostular*.aspx?i=<cargo_id>&c=<concurso_id>
+    #      `?i=` identifies the *cargo* (position definition) and is shared
+    #      across multiple competitions for the same post.  Using `?i=` causes
+    #      the same Stage-A collision as JUNJI (different competitions for the
+    #      same cargo share the same external key).
+    #      `?c=` is the unique *concurso* ID — use this as external_id.
+    #   2. /Repositorio/PDFConcursos/<filename>.pdf
+    #      PDF filenames are not stable unique identifiers across time.
+    # When neither `?c=` nor `?i=` is present, return None → Stage-B.
     if "directoresparachile.cl" in domain:
         qs = parse_qs(parsed.query)
-        values = qs.get("i", [])
-        if values and values[0]:
-            return values[0]
+        c_values = qs.get("c", [])
+        if c_values and c_values[0]:
+            return c_values[0]
         return None
 
     return None
@@ -112,17 +116,33 @@ def parse_salary(raw: str | None) -> Decimal | None:
     return value if value > 0 else None
 
 
-def compute_cross_source_key(external_id: str | None, external_id_generated: bool) -> str | None:
-    """Return a source-agnostic linking key for cross-portal deduplication.
+def compute_cross_source_key(
+    external_id: str | None,
+    external_id_generated: bool,
+    *,
+    url: str | None = None,
+) -> str | None:
+    """Return a linking key for cross-portal deduplication.
 
-    Computes ``MD5("cross|{external_id}")`` when *external_id* is a verified
-    (non-generated) value.  Returns ``None`` for generated / absent IDs.  The
-    ``"cross|"`` prefix prevents accidental collisions with Stage-A or Stage-B
-    fingerprints.
+    Computes ``MD5("cross|{domain}|{external_id}")`` when *external_id* is a
+    verified (non-generated) value.  Returns ``None`` for generated / absent IDs.
+
+    The *domain* is derived from *url*'s netloc (``www.`` stripped).  Including
+    the domain prevents false matches when two different portals happen to use
+    the same numeric ID for unrelated offers (each portal's IDs are scoped to
+    its own namespace).
+
+    Cross-portal matching between TEEE and EEPP still works correctly because
+    both portals store ``empleospublicos.cl`` URLs for EEPP-sourced offers, so
+    they produce the same domain key, and therefore the same ``cross_source_key``.
     """
     if external_id is None or external_id_generated:
         return None
-    return hashlib.md5(f"cross|{external_id}".encode()).hexdigest()
+    domain = ""
+    if url:
+        netloc = urlparse(url).netloc
+        domain = netloc.removeprefix("www.")
+    return hashlib.md5(f"cross|{domain}|{external_id}".encode()).hexdigest()
 
 
 def compute_content_fingerprint(
@@ -169,13 +189,19 @@ def compute_fingerprint(
     start_date: datetime | None = None,
     conv_type: str | None = None,
     close_date: datetime | None = None,
+    url: str | None = None,
 ) -> str:
     """Return the MD5 hex digest (32 chars) used as deduplication key.
 
     Two-stage strategy (mirrors ``teee_external_id_policy.md``):
 
     Stage A — reliable ``external_id`` (``external_id_generated=False``):
-        ``MD5("source_id|{source}|{external_id}")``
+        ``MD5("source_id|{source}|{domain}|{external_id}")``
+
+        *domain* is derived from *url*'s netloc (``www.`` stripped).  Including
+        the domain prevents false collisions when different portals use the same
+        numeric ID for unrelated offers (e.g. ``directoresparachile.cl?c=11293``
+        vs ``empleospublicos.cl?i=11293``).
 
     Stage B — no reliable ``external_id``:
         ``MD5("content|{compute_content_fingerprint(...)}")``
@@ -184,7 +210,11 @@ def compute_fingerprint(
     hash collisions between the two families of fingerprints.
     """
     if external_id is not None and not external_id_generated:
-        raw = f"source_id|{source}|{external_id}"
+        domain = ""
+        if url:
+            netloc = urlparse(url).netloc
+            domain = netloc.removeprefix("www.")
+        raw = f"source_id|{source}|{domain}|{external_id}"
     else:
         content_fp = compute_content_fingerprint(
             title,
