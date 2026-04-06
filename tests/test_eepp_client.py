@@ -71,7 +71,7 @@ async def test_fetch_all_combines_and_normalizes_offers() -> None:
     assert first_offer["region"] == "Region Metropolitana"
     assert first_offer["city"] == "Santiago"
     assert first_offer["url"] == "https://www.empleospublicos.cl/pub/convocatorias/convpostularavisoTrabajo.aspx?i=139281&c=0"
-    assert first_offer["salary_bruto"] == Decimal("1000000.00")
+    assert first_offer["gross_salary"] == Decimal("1000000.00")
     assert first_offer["external_id"] == "139281"
     assert isinstance(first_offer["fingerprint"], str) and len(first_offer["fingerprint"]) == 32
     assert first_offer["raw_data"] == postulacion_payload[0]

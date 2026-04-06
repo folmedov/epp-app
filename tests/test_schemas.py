@@ -17,7 +17,7 @@ def test_job_offer_schema_accepts_v1_canonical_payload() -> None:
         "source": "EEPP",
         "title": "Analista",
         "institution": "Servicio A",
-        "salary_bruto": "1000000.00",
+        "gross_salary": "1000000.00",
         "state": "postulacion",
         "region": "Region Metropolitana",
         "city": "Santiago",
@@ -30,7 +30,7 @@ def test_job_offer_schema_accepts_v1_canonical_payload() -> None:
     assert offer.source == "EEPP"
     assert offer.title == "Analista"
     assert offer.institution == "Servicio A"
-    assert offer.salary_bruto == Decimal("1000000.00")
+    assert offer.gross_salary == Decimal("1000000.00")
     assert offer.state == "postulacion"
     assert offer.region == "Region Metropolitana"
     assert offer.city == "Santiago"

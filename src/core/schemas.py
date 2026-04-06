@@ -29,7 +29,7 @@ class JobOfferSchema(BaseModel):
     source: str
     title: str
     institution: str
-    salary_bruto: Decimal | None = Field(
+    gross_salary: Decimal | None = Field(
         None,
         description="Monthly gross salary in CLP, null when not available",
     )
@@ -42,6 +42,9 @@ class JobOfferSchema(BaseModel):
     close_date: datetime | None = None
     conv_type: str | None = None
     cross_source_key: str | None = None
+    first_employment: bool | None = None
+    vacancies: int | None = None
+    prioritized: bool | None = None
     raw_data: dict[str, Any]
     created_at: datetime | None = None
     updated_at: datetime | None = None

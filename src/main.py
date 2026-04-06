@@ -39,7 +39,7 @@ _SCHEMA_FIELDS = {
     "region",
     "city",
     "url",
-    "salary_bruto",
+    "gross_salary",
     "external_id",
     "fingerprint",
     "raw_data",

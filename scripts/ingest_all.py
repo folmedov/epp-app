@@ -125,18 +125,20 @@ def main() -> None:
         common.append("--dry-run")
 
     if args.initial:
-        # --initial overrides policy; both loaders handle their own state order
-        LOGGER.info("Running in INITIAL mode (policy ignored)")
+        # --initial overrides policy; both loaders handle their own state order.
+        # TEEE runs first so that TEEE canonical rows are created before EEPP
+        # enrichment; this ensures TEEE is the authoritative source for shared offers.
+        LOGGER.info("Running in INITIAL mode (policy ignored) — TEEE first, EEPP second")
         loaders: list[tuple[str, Path, list[str]]] = [
-            ("EEPP", _SCRIPTS_DIR / "load_eepp.py", ["--initial"] + common),
             ("TEEE", _SCRIPTS_DIR / "load_teee.py", ["--initial"] + common),
+            ("EEPP", _SCRIPTS_DIR / "load_eepp.py", ["--initial"] + common),
         ]
     else:
         policy = _POLICIES[args.policy]
-        LOGGER.info("Running with policy=%s", args.policy)
+        LOGGER.info("Running with policy=%s — TEEE first, EEPP second", args.policy)
         loaders = [
-            ("EEPP", _SCRIPTS_DIR / "load_eepp.py", policy["eepp"] + common),
             ("TEEE", _SCRIPTS_DIR / "load_teee.py", policy["teee"] + common),
+            ("EEPP", _SCRIPTS_DIR / "load_eepp.py", policy["eepp"] + common),
         ]
 
     failed: list[str] = []

@@ -22,7 +22,7 @@ class OfferRow:
     institution: str
     region: str | None
     city: str | None
-    salary_bruto: Decimal | None
+    gross_salary: Decimal | None
     state: str
     url: str | None
 
@@ -71,7 +71,7 @@ async def get_offers(
         JobOffer.institution,
         JobOffer.region,
         JobOffer.city,
-        JobOffer.salary_bruto,
+        JobOffer.gross_salary,
         JobOffer.state,
         JobOffer.url,
     )
@@ -82,7 +82,7 @@ async def get_offers(
         "institution": JobOffer.institution,
         "region": JobOffer.region,
         "city": JobOffer.city,
-        "salary": JobOffer.salary_bruto,
+        "salary": JobOffer.gross_salary,
         "state": JobOffer.state,
         "created_at": JobOffer.created_at,
     }

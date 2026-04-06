@@ -37,6 +37,25 @@ _TIPOTXT_TO_SOURCE: dict[str, str] = {
 LOGGER = logging.getLogger(__name__)
 
 
+def _parse_vacancies(value: object) -> int | None:
+	"""Parse EEPP 'Nº de Vacantes' (string digit) to int, or None on failure."""
+	if value is None:
+		return None
+	try:
+		return int(value)
+	except (TypeError, ValueError):
+		return None
+
+
+def _parse_bool_str(value: object) -> bool | None:
+	"""Parse EEPP boolean-as-string fields (e.g. 'True'/'False') to bool."""
+	if value is None:
+		return None
+	if isinstance(value, bool):
+		return value
+	return str(value).strip().lower() == "true"
+
+
 class EEPPClientError(Exception):
 	"""Base exception for EEPP client failures."""
 
@@ -165,7 +184,7 @@ class EEPPClient:
 			"region": region,
 			"city": raw_offer.get("Ciudad"),
 			"url": url or None,
-			"salary_bruto": parse_salary(raw_offer.get("Renta Bruta")),
+			"gross_salary": parse_salary(raw_offer.get("Renta Bruta")),
 			"external_id": external_id,
 			"external_id_generated": False,
 			"external_id_fallback_type": None,
@@ -176,6 +195,9 @@ class EEPPClient:
 			"start_date": start_date,
 			"close_date": close_date,
 			"conv_type": None,
+			"first_employment": raw_offer.get("esPrimerEmpleo"),
+			"vacancies": _parse_vacancies(raw_offer.get("Nº de Vacantes")),
+			"prioritized": _parse_bool_str(raw_offer.get("Priorizado")),
 			"raw_data": raw_offer,
 		}
 

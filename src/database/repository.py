@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from uuid import UUID, uuid4
 
-from sqlalchemy import case, func, select
+from sqlalchemy import case, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -32,6 +32,12 @@ def _state_priority(state_col):
         (state_col == "finalizada",  3),
         else_=0,  # unknown state loses to everything
     )
+
+
+# Source authority: higher integer = more authoritative for canonical fields.
+# TEEE is the primary source of truth; EEPP contributes new offers and enrichment.
+_SOURCE_AUTHORITY: dict[str, int] = {"TEEE": 10, "EEPP": 5}
+
 
 
 async def upsert_job_offers(
@@ -81,7 +87,7 @@ async def upsert_job_offers(
     # If migrations haven't been applied against the DATABASE_URL used by this
     # process, the multi-row INSERT below will fail with a cryptic SQLAlchemy
     # DataError. Detect and fail fast with a clear message.
-    required_new_cols = {"ministry", "start_date", "close_date", "conv_type"}
+    required_new_cols = {"ministry", "start_date", "close_date", "conv_type", "first_employment", "vacancies", "prioritized"}
     missing = required_new_cols - allowed_cols
     if missing:
         LOGGER.error(
@@ -118,38 +124,136 @@ async def upsert_job_offers(
         for r in rows
         if r.get("cross_source_key") is not None
     ]
-    # fingerprint → (id, cross_source_key) for already-stored rows
-    existing_by_cross_key: dict[str, tuple[UUID, str]] = {}
+    # fingerprint → (id, fingerprint, source, state) for already-stored rows
+    existing_by_cross_key: dict[str, tuple[UUID, str, str, str]] = {}
     if incoming_cross_keys:
         # Chunk the IN-list to stay under asyncpg's 32767-parameter limit.
         _CSK_CHUNK = 32767
         for _offset in range(0, len(incoming_cross_keys), _CSK_CHUNK):
             _chunk_keys = incoming_cross_keys[_offset : _offset + _CSK_CHUNK]
             lookup = await session.execute(
-                select(JobOffer.id, JobOffer.fingerprint, JobOffer.cross_source_key).where(
+                select(JobOffer.id, JobOffer.fingerprint, JobOffer.cross_source_key, JobOffer.source, JobOffer.state).where(
                     JobOffer.cross_source_key.in_(_chunk_keys)
                 )
             )
-            for existing_id, existing_fp, existing_csk in lookup:
-                existing_by_cross_key[existing_csk] = (existing_id, existing_fp)
+            for existing_id, existing_fp, existing_csk, existing_source, existing_state in lookup:
+                existing_by_cross_key[existing_csk] = (existing_id, existing_fp, existing_source or "", existing_state or "")
 
     # Partition: rows that map to an existing cross-source canonical row are
     # resolved immediately; the rest go through the normal INSERT path.
+    #
+    # Source priority policy:
+    #   TEEE (authority=10) is the primary source of truth.  When a TEEE offer
+    #   matches an EEPP canonical row (EEPP ran first), TEEE promotes the canonical
+    #   row by overwriting canonical fields (title, state, url, etc.) with TEEE
+    #   data.  State follows forward-only lifecycle logic (TEEE state wins unless
+    #   the stored state is already more advanced).
+    #
+    #   EEPP (authority=5) defers to TEEE for canonical fields.  It enriches the
+    #   canonical row with EEPP-exclusive fields: gross_salary (COALESCE — only if
+    #   lacking), first_employment, vacancies, prioritized.
     fingerprint_to_id: dict[str, UUID] = {}
     rows_to_insert: list[dict] = []
+    enrichment_updates: list[dict] = []   # EEPP-exclusive fields pushed to canonical row
+    canonical_promotions: list[dict] = [] # TEEE overrides EEPP-owned canonical rows
     for row in rows:
         csk = row.get("cross_source_key")
         if csk and csk in existing_by_cross_key:
-            existing_id, existing_fp = existing_by_cross_key[csk]
+            existing_id, existing_fp, existing_source, existing_state = existing_by_cross_key[csk]
             if existing_fp != row["fingerprint"]:
                 # Different source owns the canonical row — reuse it.
+                incoming_source = row.get("source", "")
+                incoming_auth = _SOURCE_AUTHORITY.get(incoming_source, 0)
+                existing_auth = _SOURCE_AUTHORITY.get(existing_source, 0)
                 LOGGER.debug(
-                    "Cross-source match: fingerprint %s -> existing row %s (cross_source_key=%s)",
+                    "Cross-source match: fingerprint %s → existing row %s "
+                    "(cross_source_key=%s, incoming=%s auth=%d, existing=%s auth=%d)",
                     row["fingerprint"], existing_id, csk,
+                    incoming_source, incoming_auth, existing_source, existing_auth,
                 )
                 fingerprint_to_id[row["fingerprint"]] = existing_id
+
+                if incoming_auth > existing_auth:
+                    # Higher-authority source (TEEE) promotes the canonical row.
+                    # State uses forward-only lifecycle: incoming wins at same or
+                    # higher stage; existing wins if already more advanced.
+                    incoming_state_pri = _STATE_PRIORITY.get(row.get("state", ""), 0)
+                    existing_state_pri = _STATE_PRIORITY.get(existing_state, 0)
+                    winning_state = row["state"] if incoming_state_pri >= existing_state_pri else existing_state
+                    canonical_promotions.append({
+                        "job_offer_id": existing_id,
+                        "source": incoming_source,
+                        "state": winning_state,
+                        "title": row.get("title"),
+                        "institution": row.get("institution"),
+                        "region": row.get("region"),
+                        "city": row.get("city"),
+                        "url": row.get("url"),
+                        "ministry": row.get("ministry"),
+                        "start_date": row.get("start_date"),
+                        "close_date": row.get("close_date"),
+                        "conv_type": row.get("conv_type"),
+                        "cross_source_key": csk,
+                    })
+                elif any(
+                    row.get(f) is not None
+                    for f in ("gross_salary", "first_employment", "vacancies", "prioritized")
+                ):
+                    # Lower-authority source (EEPP) enriches EEPP-exclusive fields.
+                    # gross_salary: COALESCE — only fill if the canonical row has no salary.
+                    # first_employment / vacancies / prioritized: always update (TEEE never has them).
+                    enrichment_updates.append({
+                        "job_offer_id": existing_id,
+                        "gross_salary": row.get("gross_salary"),
+                        "first_employment": row.get("first_employment"),
+                        "vacancies": row.get("vacancies"),
+                        "prioritized": row.get("prioritized"),
+                    })
                 continue
         rows_to_insert.append(row)
+
+    # Apply canonical promotion updates (TEEE overrides EEPP-owned canonical rows).
+    if canonical_promotions:
+        LOGGER.info("Promoting %d canonical row(s) from EEPP to TEEE ownership", len(canonical_promotions))
+        for cp in canonical_promotions:
+            await session.execute(
+                update(JobOffer)
+                .where(JobOffer.id == cp["job_offer_id"])
+                .values(
+                    source=cp["source"],
+                    state=cp["state"],
+                    title=cp["title"],
+                    institution=cp["institution"],
+                    region=cp["region"],
+                    city=cp["city"],
+                    url=cp["url"],
+                    ministry=cp["ministry"],
+                    start_date=cp["start_date"],
+                    close_date=cp["close_date"],
+                    conv_type=cp["conv_type"],
+                    cross_source_key=cp["cross_source_key"],
+                    updated_at=func.now(),
+                )
+            )
+
+    # Apply enrichment updates to existing canonical rows (cross-source matches).
+    # gross_salary uses COALESCE so that a TEEE salary is never overwritten.
+    # The three EEPP-exclusive fields are set unconditionally since TEEE never
+    # provides them.
+    if enrichment_updates:
+        LOGGER.info("Applying EEPP enrichment to %d existing canonical row(s)", len(enrichment_updates))
+        for eu in enrichment_updates:
+            await session.execute(
+                update(JobOffer)
+                .where(JobOffer.id == eu["job_offer_id"])
+                .values(
+                    gross_salary=func.coalesce(JobOffer.gross_salary, eu["gross_salary"]),
+                    first_employment=eu["first_employment"],
+                    vacancies=eu["vacancies"],
+                    prioritized=eu["prioritized"],
+                    updated_at=func.now(),
+                )
+            )
 
     cross_matched = len(rows) - len(rows_to_insert)
     if cross_matched:
@@ -192,12 +296,15 @@ async def upsert_job_offers(
                 set_={
                     "state":            inc.state,
                     "url":              inc.url,
-                    "salary_bruto":     inc.salary_bruto,
+                    "gross_salary":     inc.gross_salary,
                     "ministry":         inc.ministry,
                     "start_date":       inc.start_date,
                     "close_date":       inc.close_date,
                     "conv_type":        inc.conv_type,
                     "cross_source_key": inc.cross_source_key,
+                    "first_employment": inc.first_employment,
+                    "vacancies":        inc.vacancies,
+                    "prioritized":      inc.prioritized,
                     "updated_at":       func.now(),
                 },
             ).returning(JobOffer.id, JobOffer.fingerprint)
@@ -212,12 +319,15 @@ async def upsert_job_offers(
                 set_={
                     "state":        case((higher_or_equal, inc.state),        else_=cur.state),
                     "url":          case((higher_or_equal, inc.url),          else_=cur.url),
-                    "salary_bruto": case((higher_or_equal, inc.salary_bruto), else_=cur.salary_bruto),
+                    "gross_salary": case((higher_or_equal, inc.gross_salary), else_=cur.gross_salary),
                     "ministry":     case((higher_or_equal, inc.ministry),     else_=cur.ministry),
                     "start_date":   case((higher_or_equal, inc.start_date),   else_=cur.start_date),
                     "close_date":   case((higher_or_equal, inc.close_date),   else_=cur.close_date),
                     "conv_type":    case((higher_or_equal, inc.conv_type),    else_=cur.conv_type),
                     "cross_source_key": case((higher_or_equal, inc.cross_source_key), else_=cur.cross_source_key),
+                    "first_employment": inc.first_employment,
+                    "vacancies":        inc.vacancies,
+                    "prioritized":      inc.prioritized,
                     "updated_at":   case((higher_or_equal, func.now()),       else_=cur.updated_at),
                 },
             ).returning(JobOffer.id, JobOffer.fingerprint)

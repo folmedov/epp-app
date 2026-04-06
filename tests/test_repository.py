@@ -28,7 +28,7 @@ def _make_schema(**overrides) -> JobOfferSchema:
         "region": "Región Metropolitana",
         "city": "Santiago",
         "url": "https://www.empleospublicos.cl/pub/convocatorias/convpostularavisoTrabajo.aspx?i=123",
-        "salary_bruto": Decimal("1000000.00"),
+        "gross_salary": Decimal("1000000.00"),
         "raw_data": {"Cargo": "Analista"},
     }
     defaults.update(overrides)

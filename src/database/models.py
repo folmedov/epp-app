@@ -12,7 +12,7 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime, Numeric, String, func, ForeignKey, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Integer, Numeric, String, SmallInteger, func, ForeignKey, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncAttrs
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -36,7 +36,7 @@ class JobOffer(Base):
 	source: Mapped[str] = mapped_column(String(32), nullable=False)
 	title: Mapped[str] = mapped_column(String(512), nullable=False)
 	institution: Mapped[str] = mapped_column(String(512), nullable=False)
-	salary_bruto: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+	gross_salary: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
 	state: Mapped[str] = mapped_column(String(32), nullable=False)
 	region: Mapped[str | None] = mapped_column(String(255), nullable=True)
 	city: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -46,6 +46,9 @@ class JobOffer(Base):
 	close_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=False), nullable=True)
 	conv_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
 	cross_source_key: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+	first_employment: Mapped[bool | None] = mapped_column(Boolean(), nullable=True)
+	vacancies: Mapped[int | None] = mapped_column(SmallInteger(), nullable=True)
+	prioritized: Mapped[bool | None] = mapped_column(Boolean(), nullable=True)
 	created_at: Mapped[datetime] = mapped_column(
 		DateTime(timezone=True),
 		server_default=func.now(),

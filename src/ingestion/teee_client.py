@@ -245,7 +245,7 @@ class TEEEClient:
 			"region": region,
 			"city": city,
 			"url": url or None,
-			"salary_bruto": None,
+			"gross_salary": None,
 			"external_id": external_id,
 			"external_id_generated": external_id_generated,
 			"external_id_fallback_type": external_id_fallback_type,
