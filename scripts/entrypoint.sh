@@ -6,7 +6,7 @@
 set -e
 
 echo "[entrypoint] Aplicando migraciones de Alembic..."
-alembic upgrade head
+/app/.venv/bin/alembic upgrade head
 
 echo "[entrypoint] Iniciando: $*"
 exec "$@"
