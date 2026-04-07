@@ -1,0 +1,28 @@
+# Git
+.git
+.gitignore
+
+# Python virtual environment (Docker instala sus propias deps)
+.venv
+
+# Byte-compiled files
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+
+# Tests y herramientas de desarrollo
+tests/
+.pytest_cache/
+.ruff_cache/
+
+# Logs locales y reportes
+logs/
+reports/
+
+# Secretos locales (NUNCA deben entrar a la imagen)
+.env
+
+# Editor / OS
+.DS_Store
+*.swp

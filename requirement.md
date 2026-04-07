@@ -50,7 +50,25 @@
 - [x] **3.16 Tests & Data Integrity**: Unit/integration tests for mapping, upsert, and reconciliation logic. Also includes a **sample-based integrity check**: periodically re-fetch a small random subset of `job_offers` from the source APIs and compare key fields (state, salary, dates) to detect data drift between DB and upstream. (details: docs/sprints/sprint_3_16_tests_and_integrity.md)
 
 ### 🚀 Sprint 4: Deployment
-- [ ] **4.1 Dokploy cron job configuration**: command, schedule, environment variables. Recommended schedule: 3×/day (morning / afternoon / night).
+- [x] **4.0 Install Dokploy on server**: Dokploy is installed and running on the target server.
+- [x] **4.1 Dockerfile**: Single multi-stage Dockerfile (`builder` with `uv sync --frozen`, `runner` with Python slim image). One image serves both the web process and the ingestion scripts; the startup command is overridden per service in Dokploy.
+- [x] **4.2 docker-compose.yml (local dev)**: Replicates the Dokploy topology locally: `web` (FastAPI on port 8000), `postgres` (official image, data volume), and an optional `worker` service for manual ingestion runs. Reads from `.env`.
+- [x] **4.3 Alembic on startup**: The web container's entrypoint runs `alembic upgrade head` before starting uvicorn so schema migrations are applied automatically on every deploy.
+- [x] **4.4 Environment variables**: Document the full set of variables that must be configured in Dokploy for each service:
+  - `DATABASE_URL` — asyncpg DSN pointing to the Dokploy Postgres service (internal network URL)
+  - `APP_ENV=production`
+  - `LOG_LEVEL=INFO`
+  - `SCRAPER_TIMEOUT=30`
+  - `SCRAPER_MAX_RETRIES=3`
+- [x] **4.5 Dokploy services**: Configure three services in the Dokploy UI, all built from the same image:
+  - `eepp-web` — Application service, port 8000, command: `alembic upgrade head && uvicorn src.web.app:app --host 0.0.0.0 --port 8000`
+  - `eepp-worker-daily` — Cron service, command: `python scripts/ingest_all.py --policy daily`
+  - `eepp-worker-monthly` — Cron service, command: `python scripts/ingest_all.py --policy monthly`
+  - `postgres` — Database service (Dokploy built-in Postgres)
+- [ ] **4.6 Cron schedules**: Set the following schedules in Dokploy for the worker services:
+  - `eepp-worker-daily`: `0 8,14,20 * * *` — 3×/day (08:00, 14:00, 20:00 Chile time)
+  - `eepp-worker-monthly`: `0 3 1 * *` — 1st of every month at 03:00
+- [ ] **4.7 Initial data load**: After first deploy, run the initial ingestion manually from Dokploy console: `python scripts/ingest_all.py --initial`
 
 ### 📊 Sprint 5: Analysis & Reporting
 - [ ] **5.1 Analytics Views**: Create SQL views in Postgres for salary averages and regional demand.

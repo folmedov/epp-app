@@ -1,0 +1,64 @@
+services:
+
+  # ─────────────────────────────────────────────
+  # Base de datos PostgreSQL
+  # ─────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: eepp
+      POSTGRES_PASSWORD: eepp
+      POSTGRES_DB: eepp
+    volumes:
+      # Volumen con nombre: los datos persisten aunque el contenedor se elimine
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      # Expone Postgres en localhost:5432 para que puedas acceder con pgAdmin, psql, etc.
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U eepp -d eepp"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ─────────────────────────────────────────────
+  # Aplicación web (FastAPI)
+  # ─────────────────────────────────────────────
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      # Lee las variables de entorno desde tu .env local.
+      # Asegúrate de que DATABASE_URL apunte al servicio "postgres" de arriba:
+      #   DATABASE_URL=postgresql+asyncpg://eepp:eepp@postgres:5432/eepp
+      - .env
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # El CMD del Dockerfile (uvicorn) se usa por defecto.
+
+  # ─────────────────────────────────────────────
+  # Worker de ingesta (ejecución manual)
+  # Esto NO arranca con "docker compose up".
+  # Para correrlo: docker compose run --rm worker --policy daily
+  # ─────────────────────────────────────────────
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles:
+      - worker
+    command: ["python", "scripts/ingest_all.py"]
+
+volumes:
+  postgres_data:
