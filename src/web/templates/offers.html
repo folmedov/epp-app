@@ -2,72 +2,177 @@
 
 {% block title %}Ofertas — Job Tracker{% endblock %}
 
+{# Search input lives in the topbar, linked to filter-form via form= attribute #}
+{% block topbar_search %}
+<div class="topbar-search" role="search" aria-label="Buscar ofertas">
+    <span class="topbar-search-icon" aria-hidden="true">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+    </span>
+    <input
+        form="filter-form"
+        id="q"
+        name="q"
+        type="search"
+        value="{{ q or '' }}"
+        placeholder="Buscar cargo o palabra clave…"
+        class="topbar-search-input"
+        autocomplete="off"
+        aria-label="Buscar cargo"
+        hx-get="/offers/partial"
+        hx-target="#results"
+        hx-trigger="keyup changed delay:450ms"
+        hx-include="#filter-form [name], [form='filter-form']"
+        hx-push-url="true"
+    />
+</div>
+{% endblock %}
+
 {% block content %}
-<section class="filters">
-    <form id="filter-form">
-        <div class="search-row">
-            <label for="q">Buscar</label>
-            <input id="q" name="q" type="search" placeholder="Buscar título o palabra clave" class="filter-field search-field" autocomplete="off"
-                hx-get="/offers/partial?sort={{ sort|default('') }}&sort_dir={{ sort_dir|default('desc') }}"
-                hx-target="#results"
-                hx-trigger="keyup changed delay:500ms"
-                hx-include="#filter-form .filter-field">
-        </div>
-        <label for="region">Región
-            <select id="region" name="region" class="filter-field"
-                hx-get="/offers/partial?sort={{ sort|default('') }}&sort_dir={{ sort_dir|default('desc') }}"
-                hx-target="#results"
-                hx-trigger="change"
-                hx-include="#filter-form .filter-field">
-                <option value="">Todas</option>
+<form id="filter-form" class="filter-bar" aria-label="Filtros de búsqueda">
+    {# Hidden sort/sort_dir — updated by sortable column header clicks #}
+    <input type="hidden" id="sort" name="sort" value="{{ sort or 'close_date' }}" />
+    <input type="hidden" id="sort_dir" name="sort_dir" value="{{ sort_dir or 'asc' }}" />
+
+    <div class="filter-bar-inner">
+        <div class="filter-group">
+            <label class="filter-label" for="region">Región</label>
+            <select id="region" name="region" class="filter-select"
+                hx-get="/offers/partial" hx-target="#results" hx-trigger="change"
+                hx-include="#filter-form [name], [form='filter-form']" hx-push-url="true">
+                <option value="">Todas las regiones</option>
                 {% for r in regions %}
-                <option value="{{ r }}">{{ r }}</option>
+                <option value="{{ r }}" {% if region == r %}selected{% endif %}>{{ r }}</option>
                 {% endfor %}
             </select>
-        </label>
+        </div>
 
-        <label for="city">Ciudad
-            <select id="city" name="city" class="filter-field"
-                hx-get="/offers/partial?sort={{ sort|default('') }}&sort_dir={{ sort_dir|default('desc') }}"
-                hx-target="#results"
-                hx-trigger="change"
-                hx-include="#filter-form .filter-field">
-                <option value="">Todas</option>
+        <div class="filter-group">
+            <label class="filter-label" for="city">Ciudad</label>
+            <select id="city" name="city" class="filter-select"
+                hx-get="/offers/partial" hx-target="#results" hx-trigger="change"
+                hx-include="#filter-form [name], [form='filter-form']" hx-push-url="true">
+                <option value="">Todas las ciudades</option>
                 {% for c in cities %}
-                <option value="{{ c }}">{{ c }}</option>
+                <option value="{{ c }}" {% if city == c %}selected{% endif %}>{{ c }}</option>
                 {% endfor %}
             </select>
-        </label>
+        </div>
 
-        <label for="institution">Institución
-            <select id="institution" name="institution" class="filter-field"
-                hx-get="/offers/partial?sort={{ sort|default('') }}&sort_dir={{ sort_dir|default('desc') }}"
-                hx-target="#results"
-                hx-trigger="change"
-                hx-include="#filter-form .filter-field">
-                <option value="">Todas</option>
+        <div class="filter-group">
+            <label class="filter-label" for="institution">Institución</label>
+            <select id="institution" name="institution" class="filter-select"
+                hx-get="/offers/partial" hx-target="#results" hx-trigger="change"
+                hx-include="#filter-form [name], [form='filter-form']" hx-push-url="true">
+                <option value="">Todas las instituciones</option>
                 {% for i in institutions %}
-                <option value="{{ i }}">{{ i }}</option>
+                <option value="{{ i }}" {% if institution == i %}selected{% endif %}>{{ i }}</option>
                 {% endfor %}
             </select>
-        </label>
+        </div>
 
-        <label for="state">Estado
-            <select id="state" name="state" class="filter-field"
-                hx-get="/offers/partial?sort={{ sort|default('') }}&sort_dir={{ sort_dir|default('desc') }}"
-                hx-target="#results"
-                hx-trigger="change"
-                hx-include="#filter-form .filter-field">
-                <option value="">Todos</option>
+        <div class="filter-group filter-group--pills">
+            <span class="filter-label">Estado</span>
+            <div class="state-pills" role="group" aria-label="Filtrar por estado">
                 {% for s in states %}
-                <option value="{{ s }}">{{ s }}</option>
+                <label class="state-pill">
+                    <input
+                        type="checkbox"
+                        name="state"
+                        value="{{ s }}"
+                        {% if s in selected_states %}checked{% endif %}
+                        hx-get="/offers/partial"
+                        hx-target="#results"
+                        hx-trigger="change"
+                        hx-include="#filter-form [name], [form='filter-form']"
+                        hx-push-url="true"
+                    />
+                    {{ s }}
+                </label>
                 {% endfor %}
-            </select>
-        </label>
-    </form>
-</section>
+            </div>
+        </div>
 
-<section id="results">
-    {% include "partials/offers_table.html" %}
-</section>
+        <div class="filter-group filter-group--action">
+            <button type="button" class="btn-clear"
+                onclick="clearFilters()"
+                aria-label="Limpiar todos los filtros">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                Limpiar
+            </button>
+        </div>
+    </div>
+</form>
+
+<main class="main-panel" aria-live="polite" aria-label="Resultados">
+    <div id="results">
+        {% include "partials/offers_table.html" %}
+    </div>
+</main>
+
+<script>
+// Serialize the filter form + topbar search into a query-string and fire an
+// HTMX GET against /offers/partial.  Using a full URL sidesteps the
+// htmx.ajax({ include }) limitation where the CSS-selector include option is
+// only reliably handled by declarative hx-include attributes.
+function _buildPartialUrl() {
+    var form   = document.getElementById('filter-form');
+    var params = new URLSearchParams(new FormData(form));
+    var qInput = document.getElementById('q');
+    if (qInput) { params.delete('q'); params.set('q', qInput.value); }
+    return '/offers/partial?' + params.toString();
+}
+
+function setSortFromHeader(col) {
+    var sortInput = document.getElementById('sort');
+    var dirInput  = document.getElementById('sort_dir');
+    var currentSort = sortInput ? sortInput.value : 'close_date';
+    var currentDir  = dirInput  ? dirInput.value  : 'asc';
+    var newSort, newDir;
+    if (currentSort !== col) {
+        newSort = col;          newDir = 'asc';
+    } else if (currentDir === 'asc') {
+        newSort = col;          newDir = 'desc';
+    } else {
+        newSort = 'close_date'; newDir = 'asc'; // reset to default
+    }
+    if (sortInput) sortInput.value = newSort;
+    if (dirInput)  dirInput.value  = newDir;
+    htmx.ajax('GET', _buildPartialUrl(), { target: '#results', pushUrl: true });
+}
+
+function clearFilters() {
+    document.getElementById('filter-form').reset();
+    // Restore sort defaults
+    var sortInput = document.getElementById('sort');
+    var dirInput  = document.getElementById('sort_dir');
+    if (sortInput) sortInput.value = 'close_date';
+    if (dirInput)  dirInput.value  = 'asc';
+    var qInput = document.getElementById('q');
+    if (qInput) qInput.value = '';
+    htmx.ajax('GET', _buildPartialUrl(), { target: '#results', pushUrl: true });
+}
+
+// Pre-select postulacion + evaluacion on first load if no state in URL
+document.addEventListener('DOMContentLoaded', function () {
+    var params = new URLSearchParams(window.location.search);
+    if (!params.has('state')) {
+        var anyChecked = false;
+        document.querySelectorAll('.state-pill input[type=checkbox]').forEach(function (cb) {
+            var v = cb.value.toLowerCase();
+            if (v.includes('postulaci')) {
+                cb.checked = true;
+                anyChecked = true;
+            }
+        });
+        if (anyChecked) {
+            htmx.ajax('GET', _buildPartialUrl(), {
+                target: '#results',
+                pushUrl: true
+            });
+        }
+    }
+});
+</script>
 {% endblock %}

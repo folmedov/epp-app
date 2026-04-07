@@ -25,6 +25,8 @@ class OfferRow:
     gross_salary: Decimal | None
     state: str
     url: str | None
+    start_date: Optional[object] = None
+    close_date: Optional[object] = None
 
 
 async def get_filter_options(session: AsyncSession) -> dict[str, list[str]]:
@@ -50,7 +52,7 @@ async def get_offers(
     city: Optional[str] = None,
     institution: Optional[str] = None,
     q: Optional[str] = None,
-    state: Optional[str] = None,
+    states: list[str] | None = None,
     page: int = 1,
     per_page: int = 50,
     sort: Optional[str] = None,
@@ -74,6 +76,8 @@ async def get_offers(
         JobOffer.gross_salary,
         JobOffer.state,
         JobOffer.url,
+        JobOffer.start_date,
+        JobOffer.close_date,
     )
 
     # Sorting: allow ordering by a whitelist of columns
@@ -84,17 +88,24 @@ async def get_offers(
         "city": JobOffer.city,
         "salary": JobOffer.gross_salary,
         "state": JobOffer.state,
-        "created_at": JobOffer.created_at,
+        "start_date": JobOffer.start_date,
+        "close_date": JobOffer.close_date,
     }
 
     if sort and sort in ALLOWED_SORTS:
         col = ALLOWED_SORTS[sort]
         if (sort_dir or "").lower() == "asc":
-            stmt = stmt.order_by(asc(col), JobOffer.id)
+            stmt = stmt.order_by(asc(col).nullslast(), desc(JobOffer.id))
         else:
-            stmt = stmt.order_by(desc(col), JobOffer.id)
+            stmt = stmt.order_by(desc(col).nullslast(), desc(JobOffer.id))
     else:
-        stmt = stmt.order_by(JobOffer.created_at.desc(), JobOffer.id)
+        # Default: soonest-to-close first (NULLs last), then most-recently-started
+        # for offers where close_date is unknown.
+        stmt = stmt.order_by(
+            asc(JobOffer.close_date).nullslast(),
+            desc(JobOffer.start_date).nullslast(),
+            desc(JobOffer.id),
+        )
 
     if region:
         stmt = stmt.where(JobOffer.region == region)
@@ -107,8 +118,8 @@ async def get_offers(
         # so searches ignore diacritics (e.g. 'analis' matches 'análisis').
         # NOTE: this requires the `unaccent` extension enabled in Postgres.
         stmt = stmt.where(func.unaccent(JobOffer.title).ilike(func.unaccent(f"%{q}%")))
-    if state:
-        stmt = stmt.where(JobOffer.state == state)
+    if states:
+        stmt = stmt.where(JobOffer.state.in_(states))
 
     # Count total matching rows for pager info
     count_stmt = select(func.count()).select_from(JobOffer)
@@ -120,8 +131,8 @@ async def get_offers(
         count_stmt = count_stmt.where(JobOffer.institution == institution)
     if q:
         count_stmt = count_stmt.where(func.unaccent(JobOffer.title).ilike(func.unaccent(f"%{q}%")))
-    if state:
-        count_stmt = count_stmt.where(JobOffer.state == state)
+    if states:
+        count_stmt = count_stmt.where(JobOffer.state.in_(states))
 
     total = await session.scalar(count_stmt)
     total = int(total or 0)

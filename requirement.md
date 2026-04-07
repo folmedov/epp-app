@@ -65,11 +65,22 @@
   - `eepp-worker-daily` — Cron service, command: `python scripts/ingest_all.py --policy daily`
   - `eepp-worker-monthly` — Cron service, command: `python scripts/ingest_all.py --policy monthly`
   - `postgres` — Database service (Dokploy built-in Postgres)
-- [ ] **4.6 Cron schedules**: Set the following schedules in Dokploy for the worker services:
+- [x] **4.6 Cron schedules**: Set the following schedules in Dokploy for the worker services:
   - `eepp-worker-daily`: `0 8,14,20 * * *` — 3×/day (08:00, 14:00, 20:00 Chile time)
   - `eepp-worker-monthly`: `0 3 1 * *` — 1st of every month at 03:00
-- [ ] **4.7 Initial data load**: After first deploy, run the initial ingestion manually from Dokploy console: `python scripts/ingest_all.py --initial`
+- [x] **4.7 Initial data load**: After first deploy, run the initial ingestion manually from Dokploy console: `python scripts/ingest_all.py --initial`
 
-### 📊 Sprint 5: Analysis & Reporting
-- [ ] **5.1 Analytics Views**: Create SQL views in Postgres for salary averages and regional demand.
-- [ ] **5.2 Notification System**: Simple script to alert of new matches via Telegram/Email.
+### 🎨 Sprint 5: UI Enhancements
+- [x] **5.1 Modern UI / Minimal Design**: Update the base layout and styles to a modern, minimal and mobile-first design. Deliverables: base CSS (or small utility stylesheet), updated base template, color tokens, font stack, and responsive breakpoints. Acceptance: offers list and detail pages use the new layout and pass basic visual QA on desktop and mobile.
+- [x] **5.2 Show start and close dates**: Surface `start_date` and `close_date` on the offers list and the offer detail page. Deliverables: templates updated to include formatted dates, server-side formatting helper, and tests. Acceptance:Dates are shown in local format and present in both list and detail views.
+- [x] **5.3 Sorting selector (replace header-click)**: Replace click-on-table-header sorting with a compact sorting control (field selector + asc/desc toggle) placed above the results. The selector must integrate with HTMX partial updates and preserve state in the query string. Acceptance: selecting sort updates the partial results and the URL reflects the choice.
+- [x] **5.4 Filters UX improvements**: Improve filter ergonomics: grouped filters, clear/reset action, and persistent filter state when navigating pages. Deliverables: small UX tweaks in templates and HTMX interactions. Acceptance: users can clear filters and share URLs with filters applied.
+- [x] **5.5 Accessibility & responsiveness**: Ensure keyboard navigation, ARIA attributes for interactive controls, focus styles, and sufficient color contrast. Deliverables: minor ARIA updates and focus-visible styles. Acceptance: basic accessibility checks (aria roles, keyboard navigation) pass.
+- [ ] **5.6 Performance & search improvements**: Add short TTL server-side caching for the offers list and consider a `tsvector` index for future full-text search. Deliverables: caching layer (in-memory or pluggable), migration notes for search indexing. Acceptance: list endpoint latency improved under load in smoke tests.
+- [ ] **5.7 E2E tests and CI**: Add Playwright (or equivalent) tests covering filtering, sorting, date display, and initial load. Integrate into CI so UI regressions are detected. Acceptance: core E2E tests run in CI and pass.
+- [ ] **5.8 Follow-up ideas**: small feature ideas to consider after UI baseline is complete:
+  - Dark mode toggle
+  - Saved searches / permalinked filters
+  - CSV export of current results
+  - Notification alerts (email/Telegram) for new matching offers
+  - Analytics views (salary averages by region) — ties to Sprint 5/6

@@ -1,95 +1,142 @@
 {% if offers %}
-<div class="results-summary-top">
+<div class="panel-header">
     {% if total is defined %}
-    <p>Resultados: {{ total }} — Página {{ page }} de {{ total_pages if total_pages else 1 }}</p>
+    <span class="results-count">{{ total }} resultado{{ 's' if total != 1 }} — Página {{ page }} de {{ total_pages if total_pages else 1 }}</span>
     {% endif %}
 </div>
-<table>
-    <thead>
-        <tr>
-            <th>
-                <button class="sort" hx-get="/offers/partial?sort=title&sort_dir={{ 'desc' if sort=='title' and sort_dir=='asc' else 'asc' }}" hx-target="#results" hx-include="#filter-form .filter-field">
-                    Cargo {% if sort=='title' %}{{ '↑' if sort_dir=='asc' else '↓' }}{% endif %}
-                </button>
-            </th>
-            <th>
-                <button class="sort" hx-get="/offers/partial?sort=institution&sort_dir={{ 'desc' if sort=='institution' and sort_dir=='asc' else 'asc' }}" hx-target="#results" hx-include="#filter-form .filter-field">
-                    Institución {% if sort=='institution' %}{{ '↑' if sort_dir=='asc' else '↓' }}{% endif %}
-                </button>
-            </th>
-            <th>
-                <button class="sort" hx-get="/offers/partial?sort=region&sort_dir={{ 'desc' if sort=='region' and sort_dir=='asc' else 'asc' }}" hx-target="#results" hx-include="#filter-form .filter-field">
-                    Región {% if sort=='region' %}{{ '↑' if sort_dir=='asc' else '↓' }}{% endif %}
-                </button>
-            </th>
-            <th>
-                <button class="sort" hx-get="/offers/partial?sort=city&sort_dir={{ 'desc' if sort=='city' and sort_dir=='asc' else 'asc' }}" hx-target="#results" hx-include="#filter-form .filter-field">
-                    Ciudad {% if sort=='city' %}{{ '↑' if sort_dir=='asc' else '↓' }}{% endif %}
-                </button>
-            </th>
-            <th>
-                <button class="sort" hx-get="/offers/partial?sort=salary&sort_dir={{ 'desc' if sort=='salary' and sort_dir=='asc' else 'asc' }}" hx-target="#results" hx-include="#filter-form .filter-field">
-                    Sueldo Bruto {% if sort=='salary' %}{{ '↑' if sort_dir=='asc' else '↓' }}{% endif %}
-                </button>
-            </th>
-            <th>
-                <button class="sort" hx-get="/offers/partial?sort=state&sort_dir={{ 'desc' if sort=='state' and sort_dir=='asc' else 'asc' }}" hx-target="#results" hx-include="#filter-form .filter-field">
-                    Estado {% if sort=='state' %}{{ '↑' if sort_dir=='asc' else '↓' }}{% endif %}
-                </button>
-            </th>
-            <th>Enlace</th>
-        </tr>
-    </thead>
-    <tbody>
-        {% for offer in offers %}
-        <tr>
-            <td>{{ offer.title }}</td>
-            <td>{{ offer.institution }}</td>
-            <td>{{ offer.region }}</td>
-            <td>{{ offer.city }}</td>
-            <td>{{ offer.gross_salary | clp }}</td>
-            <td>{{ offer.state }}</td>
-            <td><a href="{{ offer.url }}" target="_blank" rel="noopener">Ver</a></td>
-        </tr>
-        {% endfor %}
-    </tbody>
-</table>
-{% else %}
-<p>No se encontraron ofertas.</p>
-{% endif %}
 
-<nav class="pager">
-    <div>
-        {% set start = (page - 1) * per_page + 1 if total and page >= 1 else 0 %}
-        {% set end = start + (offers|length) - 1 if offers else 0 %}
-        <span class="summary">Mostrando {{ start }}–{{ end }} de {{ total }} resultados</span>
+<div class="table-card">
+    <table role="table" aria-label="Listado de ofertas laborales">
+        {% set _s = sort or 'close_date' %}
+        {% set _d = sort_dir or 'asc' %}
+        <thead>
+            <tr>
+                <th scope="col" class="th-sort col-title {% if _s == 'title' %}sort-{{ _d }}{% endif %}"
+                    onclick="setSortFromHeader('title')" tabindex="0" title="Ordenar por Cargo">
+                    Cargo <span class="sort-icon" aria-hidden="true">{% if _s == 'title' %}{% if _d == 'asc' %}↑{% else %}↓{% endif %}{% else %}⇅{% endif %}</span>
+                </th>
+                <th scope="col" class="th-sort {% if _s == 'institution' %}sort-{{ _d }}{% endif %}"
+                    onclick="setSortFromHeader('institution')" tabindex="0" title="Ordenar por Institución">
+                    Institución <span class="sort-icon" aria-hidden="true">{% if _s == 'institution' %}{% if _d == 'asc' %}↑{% else %}↓{% endif %}{% else %}⇅{% endif %}</span>
+                </th>
+                <th scope="col" class="th-sort {% if _s == 'region' %}sort-{{ _d }}{% endif %}"
+                    onclick="setSortFromHeader('region')" tabindex="0" title="Ordenar por Región">
+                    Región <span class="sort-icon" aria-hidden="true">{% if _s == 'region' %}{% if _d == 'asc' %}↑{% else %}↓{% endif %}{% else %}⇅{% endif %}</span>
+                </th>
+                <th scope="col" class="th-sort {% if _s == 'city' %}sort-{{ _d }}{% endif %}"
+                    onclick="setSortFromHeader('city')" tabindex="0" title="Ordenar por Ciudad">
+                    Ciudad <span class="sort-icon" aria-hidden="true">{% if _s == 'city' %}{% if _d == 'asc' %}↑{% else %}↓{% endif %}{% else %}⇅{% endif %}</span>
+                </th>
+                <th scope="col" class="th-sort {% if _s == 'salary' %}sort-{{ _d }}{% endif %}"
+                    onclick="setSortFromHeader('salary')" tabindex="0" title="Ordenar por Sueldo">
+                    Sueldo Bruto <span class="sort-icon" aria-hidden="true">{% if _s == 'salary' %}{% if _d == 'asc' %}↑{% else %}↓{% endif %}{% else %}⇅{% endif %}</span>
+                </th>
+                <th scope="col" class="th-sort {% if _s == 'state' %}sort-{{ _d }}{% endif %}"
+                    onclick="setSortFromHeader('state')" tabindex="0" title="Ordenar por Estado">
+                    Estado <span class="sort-icon" aria-hidden="true">{% if _s == 'state' %}{% if _d == 'asc' %}↑{% else %}↓{% endif %}{% else %}⇅{% endif %}</span>
+                </th>
+                <th scope="col" class="th-sort {% if _s == 'start_date' %}sort-{{ _d }}{% endif %}"
+                    onclick="setSortFromHeader('start_date')" tabindex="0" title="Ordenar por Fecha Inicio">
+                    Inicio <span class="sort-icon" aria-hidden="true">{% if _s == 'start_date' %}{% if _d == 'asc' %}↑{% else %}↓{% endif %}{% else %}⇅{% endif %}</span>
+                </th>
+                <th scope="col" class="th-sort {% if _s == 'close_date' %}sort-{{ _d }}{% endif %}"
+                    onclick="setSortFromHeader('close_date')" tabindex="0" title="Ordenar por Fecha Cierre">
+                    Cierre <span class="sort-icon" aria-hidden="true">{% if _s == 'close_date' %}{% if _d == 'asc' %}↑{% else %}↓{% endif %}{% else %}⇅{% endif %}</span>
+                </th>
+                <th scope="col">Enlace</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for offer in offers %}
+            {% set sl = offer.state | lower %}
+            {% if 'postulaci' in sl or 'publicad' in sl or 'abiert' in sl %}
+                {% set badge_class = 'badge-green' %}
+            {% elif 'cerrad' in sl or 'desiert' in sl or 'suspendid' in sl or 'finaliz' in sl %}
+                {% set badge_class = 'badge-red' %}
+            {% elif 'proceso' in sl or 'evaluaci' in sl %}
+                {% set badge_class = 'badge-orange' %}
+            {% else %}
+                {% set badge_class = 'badge-gray' %}
+            {% endif %}
+            <tr>
+                <td class="col-title">{{ offer.title }}</td>
+                <td>{{ offer.institution }}</td>
+                <td>{{ offer.region or '—' }}</td>
+                <td>{{ offer.city or '—' }}</td>
+                <td>{{ offer.gross_salary | clp }}</td>
+                <td><span class="badge {{ badge_class }}">{{ offer.state }}</span></td>
+                <td>{{ offer.start_date | fmt_date }}</td>
+                <td>{{ offer.close_date | fmt_date_only }}</td>
+                <td class="link-cell">
+                    {% if offer.url %}
+                    <a href="{{ offer.url }}" target="_blank" rel="noopener noreferrer" aria-label="Ver oferta: {{ offer.title }}">
+                        Ver
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+                            <polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
+                        </svg>
+                    </a>
+                    {% else %}—{% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
 
-        {% if page > 1 %}
-            <button
+    {# Pagination #}
+    {% set start = (page - 1) * per_page + 1 if total and page >= 1 else 0 %}
+    {% set end   = start + (offers | length) - 1 if offers else 0 %}
+    <nav class="pager" aria-label="Paginación">
+        <span class="pager-summary">Mostrando {{ start }}–{{ end }} de {{ total }}</span>
+        <div class="pager-buttons" role="group" aria-label="Páginas">
+            {# First page #}
+            <button class="pager-btn" aria-label="Primera página"
+                {% if page <= 1 %}disabled{% endif %}
                 hx-get="/offers/partial?page=1&per_page={{ per_page }}&sort={{ sort|default('') }}&sort_dir={{ sort_dir|default('desc') }}"
-                hx-target="#results"
-                hx-include="#filter-form"
-                class="btn">Primera</button>
-
-            <button
+                hx-target="#results" hx-include="#filter-form [name], [form='filter-form']">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/>
+                </svg>
+            </button>
+            {# Previous #}
+            <button class="pager-btn" aria-label="Página anterior"
+                {% if page <= 1 %}disabled{% endif %}
                 hx-get="/offers/partial?page={{ page - 1 }}&per_page={{ per_page }}&sort={{ sort|default('') }}&sort_dir={{ sort_dir|default('desc') }}"
-                hx-target="#results"
-                hx-include="#filter-form"
-                class="btn">Anterior</button>
-        {% endif %}
-
-        {% if has_next %}
-            <button
+                hx-target="#results" hx-include="#filter-form [name], [form='filter-form']">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <polyline points="15 18 9 12 15 6"/>
+                </svg>
+            </button>
+            {# Next #}
+            <button class="pager-btn" aria-label="Página siguiente"
+                {% if not has_next %}disabled{% endif %}
                 hx-get="/offers/partial?page={{ page + 1 }}&per_page={{ per_page }}&sort={{ sort|default('') }}&sort_dir={{ sort_dir|default('desc') }}"
-                hx-target="#results"
-                hx-include="#filter-form"
-                class="btn">Siguiente</button>
-
-            <button
+                hx-target="#results" hx-include="#filter-form [name], [form='filter-form']">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <polyline points="9 18 15 12 9 6"/>
+                </svg>
+            </button>
+            {# Last page #}
+            <button class="pager-btn" aria-label="Última página"
+                {% if not has_next %}disabled{% endif %}
                 hx-get="/offers/partial?page={{ total_pages }}&per_page={{ per_page }}&sort={{ sort|default('') }}&sort_dir={{ sort_dir|default('desc') }}"
-                hx-target="#results"
-                hx-include="#filter-form"
-                class="btn">Última</button>
-        {% endif %}
+                hx-target="#results" hx-include="#filter-form [name], [form='filter-form']">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/>
+                </svg>
+            </button>
+        </div>
+    </nav>
+</div>
+
+{% else %}
+<div class="table-card">
+    <div class="empty-state" role="status">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            <line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/>
+        </svg>
+        <p>No se encontraron ofertas con los filtros seleccionados.</p>
     </div>
-</nav>
+</div>
+{% endif %}
