@@ -38,7 +38,7 @@ def get_url() -> str | None:
         return None
     # Convert asyncpg URL to a sync psycopg URL for Alembic operations
     if url.startswith("postgresql+asyncpg://"):
-        return url.replace("postgresql+asyncpg://", "postgresql+psycopg://")
+        return url.replace("postgresql+asyncpg://", "postgresql+psycopg2://")
     return url
 
 
