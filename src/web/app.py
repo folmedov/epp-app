@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from src.web.routers import offers as offers_router
+from src.web.routers import subscriptions as subscriptions_router
 
 _BASE_DIR = Path(__file__).parent
 
@@ -17,6 +18,7 @@ def create_app() -> FastAPI:
 
     app.mount("/static", StaticFiles(directory=str(_BASE_DIR / "static")), name="static")
     app.include_router(offers_router.router)
+    app.include_router(subscriptions_router.router)
 
     return app
 
