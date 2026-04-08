@@ -92,7 +92,7 @@
 - [x] **6.4 Subscription UI**: Subscribe form linked from topbar + confirmation/unsubscribe result pages. (details: docs/sprints/sprint_6_4_subscription_ui.md)
 - [x] **6.5 Keyword matcher** (`src/notifications/matcher.py`): DB-level `unaccent ILIKE` match of subscriber keywords against new offer titles.
 - [x] **6.6 Immediate notification script** (`scripts/notify_new_offers.py`): Called by `ingest_all.py` after each ingestion. Queues and sends one email per subscriber for each new matching offer. Uses `notified_at IS NULL` as the new-offer marker.
-- [ ] **6.7 Weekly digest script** (`scripts/weekly_digest.py`): Standalone cron script. Sends one grouped email per subscriber with all matching offers from the past 7 days.
+- [x] **6.7 Weekly digest script** (`scripts/weekly_digest.py`): Standalone cron script. Sends one grouped email per subscriber with all matching offers from the past 7 days.
 - [ ] **6.8 Hook into `ingest_all.py`**: Call `notify_new_offers.py` after `close_stale_offers.py` (non-fatal, forwards `--dry-run`).
 - [ ] **6.9 Env vars & Dokploy crons**: `SMTP_*` vars + `APP_BASE_URL`. Two new cron services: `eepp-worker-digest` (Mondays 09:00) and `eepp-worker-cleanup` (daily 02:00). (details: docs/sprints/sprint_6_notifications.md)
 
