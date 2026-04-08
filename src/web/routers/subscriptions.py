@@ -11,15 +11,20 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta
 from typing import Annotated, Optional
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse
-from sqlalchemy import select
+from sqlalchemy import ARRAY, String, bindparam, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.models import Subscription
-from src.notifications.email import NotificationError, send_confirmation_email
+from src.notifications.email import (
+    NotificationError,
+    OfferRow,
+    send_confirmation_email,
+    send_notification_email,
+)
 from src.web.deps import get_db_session
 from src.web.templating import templates
 
@@ -28,6 +33,35 @@ LOGGER = logging.getLogger(__name__)
 router = APIRouter()
 
 DbSession = Annotated[AsyncSession, Depends(get_db_session)]
+
+# ── SQL for welcome notification ──────────────────────────────────────────────
+
+_WELCOME_MATCH_SQL = text("""
+    SELECT jo.id, jo.title, jo.institution, jo.region, jo.close_date, jo.url
+    FROM   job_offers jo
+    JOIN   LATERAL unnest(:keywords) AS kw ON TRUE
+    WHERE  jo.is_active = TRUE
+      AND  jo.state = 'postulacion'
+      AND  unaccent(jo.title) ILIKE unaccent('%' || kw || '%')
+    GROUP  BY jo.id, jo.title, jo.institution, jo.region, jo.close_date, jo.url
+""").bindparams(bindparam("keywords", type_=ARRAY(String())))
+
+_WELCOME_QUEUE_INSERT_SQL = text("""
+    INSERT INTO notification_queue
+        (id, subscription_id, job_offer_id, notification_type, status)
+    VALUES
+        (:id, :subscription_id, :job_offer_id, 'immediate', 'pending')
+    ON CONFLICT ON CONSTRAINT uq_notification_queue_dedup DO NOTHING
+""")
+
+_WELCOME_MARK_SENT_SQL = text("""
+    UPDATE notification_queue
+    SET    status = 'sent', sent_at = NOW()
+    WHERE  subscription_id = :subscription_id
+      AND  job_offer_id = ANY(:offer_ids)
+      AND  notification_type = 'immediate'
+      AND  status = 'pending'
+""")
 
 
 @router.get("/subscribe", response_class=HTMLResponse)
@@ -141,7 +175,22 @@ async def confirm_subscription(
     subscription.confirmation_token = None
     subscription.token_expires_at = None
     subscription.unsubscribe_token = uuid4()
+
+    # Capture values before commit — ORM expires attributes after session.commit()
+    sub_id: UUID = subscription.id
+    sub_email: str = subscription.email
+    sub_keywords: list[str] = list(subscription.keywords)
+    unsubscribe_token: UUID = subscription.unsubscribe_token  # type: ignore[assignment]
+
     await session.commit()
+
+    # Send welcome notification with currently matching offers (non-fatal)
+    try:
+        await _send_welcome_notification(
+            session, sub_id, sub_email, sub_keywords, unsubscribe_token
+        )
+    except Exception as exc:
+        LOGGER.error("Unexpected error in welcome notification for %s: %s", sub_email, exc)
 
     return templates.TemplateResponse(
         request,
@@ -183,3 +232,68 @@ async def unsubscribe(
         "unsubscribe_ok.html",
         {"already_removed": False},
     )
+
+
+# ── Welcome notification helper ───────────────────────────────────────────────
+
+async def _send_welcome_notification(
+    session: AsyncSession,
+    sub_id: UUID,
+    email: str,
+    keywords: list[str],
+    unsubscribe_token: UUID,
+) -> None:
+    """Send an immediate notification with currently matching offers on confirmation.
+
+    Inserts notification_queue rows as 'pending', attempts the SMTP send, and
+    marks them 'sent' on success. If SMTP fails, rows stay 'pending' so the
+    daily cron retries on the next run.
+    """
+    result = await session.execute(_WELCOME_MATCH_SQL, {"keywords": keywords})
+    rows = result.fetchall()
+
+    if not rows:
+        LOGGER.info("No matching offers found for new subscriber %s — skipping welcome email.", email)
+        return
+
+    offer_ids = [str(row.id) for row in rows]
+
+    for row in rows:
+        await session.execute(
+            _WELCOME_QUEUE_INSERT_SQL,
+            {
+                "id": str(uuid4()),
+                "subscription_id": str(sub_id),
+                "job_offer_id": str(row.id),
+            },
+        )
+
+    offer_list = [
+        OfferRow(
+            title=row.title,
+            institution=row.institution,
+            region=row.region or "",
+            close_date=row.close_date,
+            url=row.url or "",
+        )
+        for row in rows
+    ]
+
+    try:
+        await send_notification_email(
+            email=email,
+            offers=offer_list,
+            unsubscribe_token=str(unsubscribe_token),
+            notification_type="immediate",
+        )
+        await session.execute(
+            _WELCOME_MARK_SENT_SQL,
+            {"subscription_id": str(sub_id), "offer_ids": offer_ids},
+        )
+        LOGGER.info("Sent welcome notification to %s with %d offer(s).", email, len(offer_list))
+    except NotificationError as exc:
+        LOGGER.warning(
+            "Failed to send welcome notification to %s: %s — will retry on next cron run.", email, exc
+        )
+
+    await session.commit()

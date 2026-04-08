@@ -41,6 +41,7 @@ _UNNOTIFIED_SQL = text("""
     FROM   job_offers
     WHERE  notified_at IS NULL
       AND  is_active = TRUE
+      AND  state = 'postulacion'
 """)
 
 _QUEUE_INSERT_SQL = text("""
@@ -70,6 +71,15 @@ _STAMP_NOTIFIED_SQL = text("""
     UPDATE job_offers
     SET    notified_at = NOW()
     WHERE  id = ANY(:offer_ids)
+""")
+
+_ALREADY_SENT_FOR_SUB_SQL = text("""
+    SELECT job_offer_id
+    FROM   notification_queue
+    WHERE  subscription_id = :subscription_id
+      AND  job_offer_id = ANY(:offer_ids)
+      AND  notification_type = 'immediate'
+      AND  status = 'sent'
 """)
 
 
@@ -136,7 +146,22 @@ async def _process(session: AsyncSession, dry_run: bool) -> None:
                 },
             )
 
-        # 3b: load subscription email + unsubscribe token
+        # 3b: filter out offers already sent to this subscriber (e.g. welcome email)
+        already_sent_result = await session.execute(
+            _ALREADY_SENT_FOR_SUB_SQL,
+            {
+                "subscription_id": str(sub_id),
+                "offer_ids": [str(oid) for oid in matched_offer_ids],
+            },
+        )
+        already_sent_ids = {UUID(str(row.job_offer_id)) for row in already_sent_result.fetchall()}
+        new_offer_ids = [oid for oid in matched_offer_ids if oid not in already_sent_ids]
+
+        if not new_offer_ids:
+            LOGGER.info("Subscription %s: all matched offers already sent — skipping.", sub_id)
+            continue
+
+        # 3c: load subscription email + unsubscribe token
         sub_result = await session.execute(
             _SUBSCRIPTION_SQL,
             {"subscription_id": str(sub_id)},
@@ -149,16 +174,17 @@ async def _process(session: AsyncSession, dry_run: bool) -> None:
         email: str = sub_row.email
         unsubscribe_token: str = str(sub_row.unsubscribe_token)
 
-        # 3c: build OfferRow list for this subscriber
+        # 3d: build OfferRow list for this subscriber (new offers only)
         offer_list: list[OfferRow] = [
-            offers_by_id[oid] for oid in matched_offer_ids if oid in offers_by_id
+            offers_by_id[oid] for oid in new_offer_ids if oid in offers_by_id
         ]
 
         if dry_run:
             LOGGER.info(
-                "[dry-run] Would send %d offer(s) to %s",
+                "[dry-run] Would send %d offer(s) to %s (%d already sent skipped)",
                 len(offer_list),
                 email,
+                len(already_sent_ids),
             )
             notified_count += 1
             continue
@@ -176,12 +202,12 @@ async def _process(session: AsyncSession, dry_run: bool) -> None:
             error_count += 1
             continue
 
-        # 3e: mark queue rows as sent
+        # 3e: mark queue rows as sent (only new offers)
         await session.execute(
             _MARK_SENT_SQL,
             {
                 "subscription_id": str(sub_id),
-                "offer_ids": [str(oid) for oid in matched_offer_ids],
+                "offer_ids": [str(oid) for oid in new_offer_ids],
             },
         )
         notified_count += 1
