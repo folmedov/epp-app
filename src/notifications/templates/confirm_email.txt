@@ -1,0 +1,10 @@
+Confirma tu suscripción — Job Tracker
+======================================
+
+Haz clic en el enlace para activar las alertas de nuevas ofertas de empleo público.
+
+Confirmar suscripción:
+{{ confirm_url }}
+
+Este enlace expira en 24 horas.
+Si no solicitaste esta suscripción, ignora este mensaje.

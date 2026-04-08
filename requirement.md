@@ -87,7 +87,7 @@
 
 ### 📧 Sprint 6: Notifications
 - [x] **6.1 DB schema**: New tables `subscriptions` (email, keywords array, confirmation token, unsubscribe token) and `notification_queue` (idempotent work queue per subscriber/offer pair). New column `job_offers.notified_at` to track which offers have been processed. (details: docs/sprints/sprint_6_1_notifications_schema.md)
-- [ ] **6.2 Email sender module** (`src/notifications/email.py`): Async SMTP client via `aiosmtplib`. HTML + plain-text multipart emails from Jinja2 templates. Config via env vars.
+- [x] **6.2 Email sender module** (`src/notifications/email.py`): Async SMTP client via `aiosmtplib`. HTML + plain-text multipart emails from Jinja2 templates. Config via env vars. (details: docs/sprints/sprint_6_2_email_sender.md)
 - [ ] **6.3 Subscription router** (`src/web/routers/subscriptions.py`): `POST /subscribe`, `GET /confirm/{token}` (double opt-in, 24h expiry), `GET /unsubscribe/{token}` (one-click, no auth).
 - [ ] **6.4 Subscription UI**: Subscribe form linked from topbar + confirmation/unsubscribe result pages.
 - [ ] **6.5 Keyword matcher** (`src/notifications/matcher.py`): DB-level `unaccent ILIKE` match of subscriber keywords against new offer titles.

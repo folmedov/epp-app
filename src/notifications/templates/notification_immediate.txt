@@ -1,0 +1,12 @@
+Nueva oferta publicada — Job Tracker
+=====================================
+{% for offer in offers %}
+{{ offer.title }}
+{{ offer.institution }} · {{ offer.region }}{% if offer.close_date %} · Cierre: {{ offer.close_date.strftime('%d/%m/%Y') }}{% endif %}
+
+Ver oferta: {{ offer.url }}
+{% endfor %}
+
+---
+Recibiste este email porque estás suscrito a alertas de empleo público.
+Cancelar suscripción: {{ unsubscribe_url }}

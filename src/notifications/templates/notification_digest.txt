@@ -1,0 +1,15 @@
+Resumen semanal de ofertas — Job Tracker
+=========================================
+
+{{ offers | length }} oferta{{ 's' if offers | length != 1 else '' }} nueva{{ 's' if offers | length != 1 else '' }} esta semana que coinciden con tus palabras clave.
+
+{% for offer in offers %}
+{{ loop.index }}. {{ offer.title }}
+   {{ offer.institution }} · {{ offer.region }}{% if offer.close_date %} · Cierre: {{ offer.close_date.strftime('%d/%m/%Y') }}{% endif %}
+
+   Ver oferta: {{ offer.url }}
+
+{% endfor %}
+---
+Recibiste este email porque estás suscrito a alertas de empleo público.
+Cancelar suscripción: {{ unsubscribe_url }}

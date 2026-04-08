@@ -28,6 +28,14 @@ class Config(BaseSettings):
     PB_URL: Optional[str] = Field(None, description="PocketBase API URL")
     PB_TOKEN: Optional[str] = Field(None, description="PocketBase Admin Token")
 
+    # SMTP / Notifications (all optional — only required when sending email)
+    SMTP_HOST: Optional[str] = Field(None, description="SMTP server hostname")
+    SMTP_PORT: int = Field(587, description="SMTP port (587=STARTTLS, 465=SSL)")
+    SMTP_USER: Optional[str] = Field(None, description="SMTP authentication username")
+    SMTP_PASSWORD: Optional[str] = Field(None, description="SMTP authentication password")
+    SMTP_FROM: Optional[str] = Field(None, description='Sender address, e.g. "Job Tracker <noreply@example.com>"')
+    APP_BASE_URL: str = Field("http://localhost:8000", description="Base URL for confirm/unsubscribe links in emails")
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
