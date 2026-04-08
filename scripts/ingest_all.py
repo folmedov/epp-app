@@ -163,6 +163,14 @@ def main() -> None:
         if rc_stale != 0:
             LOGGER.warning("close_stale_offers completed with errors (non-fatal). Review logs.")
 
+        rc_notify = _run_loader(
+            "notify",
+            _SCRIPTS_DIR / "notify_new_offers.py",
+            common,  # forwards --dry-run if present
+        )
+        if rc_notify != 0:
+            LOGGER.warning("notify_new_offers completed with errors (non-fatal). Review logs.")
+
 
 if __name__ == "__main__":
     main()
