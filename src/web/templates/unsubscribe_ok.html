@@ -6,12 +6,13 @@
   <div class="card subscribe-card">
     {% if already_removed %}
       <h1>Suscripción no encontrada</h1>
-      <p>Es posible que ya hayas cancelado tu suscripción anteriormente.</p>
+      <p>Es posible que ya hayas cancelado tu suscripción anteriormente o que el enlace no sea válido.</p>
     {% else %}
       <h1>Suscripción cancelada</h1>
       <p>Has sido eliminado/a de la lista de alertas. No recibirás más emails de Job Tracker.</p>
+      <p style="margin-top: 8px; font-size: 0.875rem; color: var(--text-muted);">¿Fue un error? Puedes <a href="/subscribe">volver a suscribirte</a> cuando quieras.</p>
     {% endif %}
-    <p><a href="/">Volver al inicio</a></p>
+    <p style="margin-top: 24px;"><a href="/">Volver al inicio</a></p>
   </div>
 </div>
 {% endblock %}

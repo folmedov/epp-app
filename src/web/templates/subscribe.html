@@ -1,27 +1,27 @@
 {% extends "base.html" %}
-{% block title %}Suscribirse — Job Tracker{% endblock %}
+{% block title %}Alertas de empleo — Job Tracker{% endblock %}
 
 {% block content %}
 <div class="page-content">
   <div class="card subscribe-card">
     {% if submitted %}
       <h1>Revisa tu email</h1>
-      <p>Te enviamos un enlace de confirmación. Haz clic en él para activar tu suscripción.</p>
-      <p><a href="/">Volver al inicio</a></p>
+      <p>Te enviamos un enlace de confirmación al correo indicado. Haz clic en él para activar tus alertas.</p>
+      <p style="margin-top: 24px;"><a href="/">Ver ofertas disponibles</a></p>
     {% else %}
       <h1>Alertas de empleo público</h1>
-      <p>Recibe un email cuando se publiquen ofertas que coincidan con tus palabras clave.</p>
+      <p>Recibe un email cada vez que se publique una oferta que coincida con tus palabras clave.</p>
 
       {% if error %}
         <div class="form-error" role="alert">{{ error }}</div>
       {% endif %}
 
-      <form method="post" action="/subscribe" class="subscribe-form">
+      <form method="post" action="/subscribe">
         <div class="form-group">
-          <label for="email">Email</label>
+          <label for="sub-email">Email</label>
           <input
             type="email"
-            id="email"
+            id="sub-email"
             name="email"
             required
             maxlength="254"
@@ -30,15 +30,15 @@
           />
         </div>
         <div class="form-group">
-          <label for="keywords">Palabras clave</label>
+          <label for="sub-keywords">Palabras clave</label>
           <input
             type="text"
-            id="keywords"
+            id="sub-keywords"
             name="keywords"
             required
             placeholder="analista, informática, salud"
           />
-          <small class="form-hint">Separa las palabras con comas. Se buscan en el título del cargo.</small>
+          <small class="form-hint">Separa las palabras con comas. Se buscan en el título del cargo (sin distinguir mayúsculas ni tildes).</small>
         </div>
         <button type="submit" class="btn btn-primary">Suscribirse</button>
       </form>

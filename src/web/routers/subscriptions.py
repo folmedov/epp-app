@@ -30,6 +30,16 @@ router = APIRouter()
 DbSession = Annotated[AsyncSession, Depends(get_db_session)]
 
 
+@router.get("/subscribe", response_class=HTMLResponse)
+async def subscribe_page(request: Request) -> HTMLResponse:
+    """Render the subscribe form."""
+    return templates.TemplateResponse(
+        request,
+        "subscribe.html",
+        {"submitted": False, "error": None},
+    )
+
+
 @router.post("/subscribe", response_class=HTMLResponse)
 async def subscribe(
     request: Request,
