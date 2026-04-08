@@ -6,8 +6,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Optional
 import math
-from sqlalchemy import desc, asc
-
+from sqlalchemy import desc, asc, or_
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -57,6 +56,7 @@ async def get_offers(
     per_page: int = 50,
     sort: Optional[str] = None,
     sort_dir: str = "desc",
+    include_inactive: bool = False,
 ) -> tuple[list[OfferRow], bool, int, int]:
     """Query job offers with optional filters and simple page-based pagination.
 
@@ -120,6 +120,11 @@ async def get_offers(
         stmt = stmt.where(func.unaccent(JobOffer.title).ilike(func.unaccent(f"%{q}%")))
     if states:
         stmt = stmt.where(JobOffer.state.in_(states))
+    if not include_inactive:
+        stmt = stmt.where(JobOffer.is_active.is_(True))
+        stmt = stmt.where(
+            or_(JobOffer.close_date.is_(None), JobOffer.close_date >= func.current_date())
+        )
 
     # Count total matching rows for pager info
     count_stmt = select(func.count()).select_from(JobOffer)
@@ -133,6 +138,11 @@ async def get_offers(
         count_stmt = count_stmt.where(func.unaccent(JobOffer.title).ilike(func.unaccent(f"%{q}%")))
     if states:
         count_stmt = count_stmt.where(JobOffer.state.in_(states))
+    if not include_inactive:
+        count_stmt = count_stmt.where(JobOffer.is_active.is_(True))
+        count_stmt = count_stmt.where(
+            or_(JobOffer.close_date.is_(None), JobOffer.close_date >= func.current_date())
+        )
 
     total = await session.scalar(count_stmt)
     total = int(total or 0)

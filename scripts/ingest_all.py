@@ -153,6 +153,16 @@ def main() -> None:
 
     LOGGER.info("All loaders completed successfully.")
 
+    # After every non-initial run, close stale offers (non-fatal).
+    if not args.initial:
+        rc_stale = _run_loader(
+            "close_stale",
+            _SCRIPTS_DIR / "close_stale_offers.py",
+            common,  # forwards --dry-run if present
+        )
+        if rc_stale != 0:
+            LOGGER.warning("close_stale_offers completed with errors (non-fatal). Review logs.")
+
 
 if __name__ == "__main__":
     main()

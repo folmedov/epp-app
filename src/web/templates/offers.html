@@ -102,6 +102,24 @@
                 Limpiar
             </button>
         </div>
+
+        <div class="filter-group filter-group--action">
+            <label class="state-pill state-pill--inactive" title="Incluir ofertas con fecha de cierre vencida">
+                <input
+                    type="checkbox"
+                    id="include_inactive"
+                    name="include_inactive"
+                    value="true"
+                    {% if include_inactive %}checked{% endif %}
+                    hx-get="/offers/partial"
+                    hx-target="#results"
+                    hx-trigger="change"
+                    hx-include="#filter-form [name], [form='filter-form']"
+                    hx-push-url="true"
+                />
+                Vencidas
+            </label>
+        </div>
     </div>
 </form>
 
@@ -121,6 +139,8 @@ function _buildPartialUrl() {
     var params = new URLSearchParams(new FormData(form));
     var qInput = document.getElementById('q');
     if (qInput) { params.delete('q'); params.set('q', qInput.value); }
+    // Checkbox: if not present in FormData (unchecked) ensure param is omitted
+    // FastAPI treats absence of include_inactive as false; no need to set it explicitly.
     return '/offers/partial?' + params.toString();
 }
 

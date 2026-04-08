@@ -60,6 +60,9 @@ class JobOffer(Base):
 		onupdate=func.now(),
 		nullable=False,
 	)
+	is_active: Mapped[bool] = mapped_column(
+		Boolean(), nullable=False, default=True, server_default="true", index=True
+	)
 
 
 class JobOfferSource(Base):

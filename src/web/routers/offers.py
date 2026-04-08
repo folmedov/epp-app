@@ -30,6 +30,7 @@ async def offers_page(
     per_page: int = 50,
     sort: Optional[str] = None,
     sort_dir: str = "asc",
+    include_inactive: bool = False,
 ) -> HTMLResponse:
     """Full page render of the offers list with filter dropdowns."""
     filter_opts = await get_filter_options(session)
@@ -44,6 +45,7 @@ async def offers_page(
         per_page=per_page,
         sort=sort,
         sort_dir=sort_dir,
+        include_inactive=include_inactive,
     )
     return templates.TemplateResponse(
         request,
@@ -59,6 +61,7 @@ async def offers_page(
             "sort": sort,
             "sort_dir": sort_dir,
             "selected_states": state,
+            "include_inactive": include_inactive,
             **filter_opts,
         },
     )
@@ -77,6 +80,7 @@ async def offers_partial(
     per_page: int = 50,
     sort: Optional[str] = None,
     sort_dir: str = "asc",
+    include_inactive: bool = False,
 ) -> HTMLResponse:
     """HTMX partial: returns only the table rows matching the given filters.
 
@@ -97,6 +101,7 @@ async def offers_partial(
         per_page=per_page,
         sort=sort,
         sort_dir=sort_dir,
+        include_inactive=include_inactive,
     )
     return templates.TemplateResponse(
         request,

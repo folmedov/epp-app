@@ -84,3 +84,7 @@
   - CSV export of current results
   - Notification alerts (email/Telegram) for new matching offers
   - Analytics views (salary averages by region) — ties to Sprint 5/6
+
+### 🔍 Sprint 6: Data Quality & Lifecycle
+
+- [x] **6.1 Offer lifecycle flag (`is_active`)**: Add a boolean `is_active` column to `job_offers` (default `True`). A new script `scripts/close_stale_offers.py` sets `is_active = False` for offers in `postulacion` or `evaluacion` whose `close_date` is in the past and that no longer appear in any active TEEE or EEPP feed. The script is called at the end of every daily ingestion run (`scripts/ingest_all.py`). The `state` column is **never modified** — it preserves the portal-reported value. The web UI default query applies two conditions: `is_active = True` AND (`close_date IS NULL OR close_date >= CURRENT_DATE`). A filter toggle "Vencidas" passes `include_inactive=true` to the API, removing both conditions and showing all rows. **Design note:** TEEE keeps offers in its active index even after `close_date` elapses, so `close_stale_offers.py` currently closes 0 offers per run. The `close_date`-based filter in the query layer is the primary mechanism that hides stale offers; `is_active` is preserved as a pipeline-managed override for future use (e.g., manually deactivating specific offers). (details: docs/sprints/sprint_6_1_is_active_lifecycle.md)

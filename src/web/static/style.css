@@ -283,6 +283,12 @@ a:hover { text-decoration: underline; }
   color: #fff;
   font-weight: 600;
 }
+.state-pill--inactive { border-style: dashed; }
+.state-pill--inactive:has(input:checked) {
+  background: var(--text-muted);
+  border-color: var(--text-muted);
+  color: #fff;
+}
 .state-pill:focus-within {
   outline: none;
   box-shadow: 0 0 0 3px var(--focus-ring);
