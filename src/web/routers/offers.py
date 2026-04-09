@@ -22,7 +22,6 @@ async def offers_page(
     request: Request,
     session: DbSession,
     region: Optional[str] = None,
-    city: Optional[str] = None,
     institution: Optional[str] = None,
     q: Optional[str] = None,
     state: list[str] = Query(default=[]),
@@ -37,7 +36,6 @@ async def offers_page(
     offers, has_next, total, total_pages = await get_offers(
         session,
         region=region or None,
-        city=city or None,
         institution=institution or None,
         q=q or None,
         states=state or None,
@@ -72,7 +70,6 @@ async def offers_partial(
     request: Request,
     session: DbSession,
     region: Optional[str] = None,
-    city: Optional[str] = None,
     institution: Optional[str] = None,
     q: Optional[str] = None,
     state: list[str] = Query(default=[]),
@@ -93,7 +90,6 @@ async def offers_partial(
     offers, has_next, total, total_pages = await get_offers(
         session,
         region=region or None,
-        city=city or None,
         institution=institution or None,
         q=q or None,
         states=state or None,

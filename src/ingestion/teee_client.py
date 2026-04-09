@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional
 import httpx
 
 from src.core.config import settings
+from src.core.regions import normalize_region_from_code, normalize_region_from_text
 from src.processing.transformers import compute_content_fingerprint, compute_fingerprint, compute_cross_source_key, extract_external_id, parse_date
 
 
@@ -169,7 +170,8 @@ class TEEEClient:
 		title = src.get("Cargo")
 		institution = src.get("Institucion/Entidad") or src.get("Institución / Entidad")
 		raw_region = src.get("Region")
-		region = self._normalize_region(raw_region)
+		region_code = src.get("Codigo Region")
+		region = normalize_region_from_code(region_code) or normalize_region_from_text(raw_region)
 		city = src.get("Ciudad")
 		url = src.get("URL") or None
 
@@ -258,14 +260,6 @@ class TEEEClient:
 			"conv_type": conv_type,
 			"raw_data": raw_data,
 		}
-
-	@staticmethod
-	def _normalize_region(raw: Optional[str]) -> Optional[str]:
-		if not raw:
-			return None
-		if raw.startswith("Región de "):
-			return raw[len("Región de "):].strip()
-		return raw
 
 
 __all__ = ["TEEEClient", "TEEEClientError", "TEEEResponseFormatError"]

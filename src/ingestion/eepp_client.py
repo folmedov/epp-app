@@ -15,6 +15,7 @@ from typing import Any
 import httpx
 
 from src.core.config import settings
+from src.core.regions import normalize_region_from_text
 from src.processing.transformers import (
 	compute_fingerprint,
 	compute_content_fingerprint,
@@ -142,7 +143,7 @@ class EEPPClient:
 		url: str = raw_offer.get("url") or ""
 		title: str | None = raw_offer.get("Cargo")
 		institution: str | None = raw_offer.get("Institución / Entidad")
-		region: str | None = raw_offer.get("Región")
+		region: str | None = normalize_region_from_text(raw_offer.get("Región"))
 
 		external_id = extract_external_id(url)
 

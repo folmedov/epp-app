@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Optional
 import math
-from sqlalchemy import desc, asc, or_
+from sqlalchemy import desc, asc, case, or_
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -31,9 +31,24 @@ class OfferRow:
 async def get_filter_options(session: AsyncSession) -> dict[str, list[str]]:
     """Return distinct non-null values for each filter dropdown."""
     result: dict[str, list[str]] = {}
+
+    # Regions: alphabetical, but "Otras ubicaciones" always last.
+    # Use a subquery to satisfy PostgreSQL's DISTINCT + ORDER BY constraint
+    # (ORDER BY expressions must appear in the SELECT list with DISTINCT).
+    _otras = "Otras ubicaciones"
+    sort_key = case((JobOffer.region == _otras, 1), else_=0).label("_sort")
+    subq = (
+        select(JobOffer.region, sort_key)
+        .where(JobOffer.region.isnot(None))
+        .distinct()
+        .subquery()
+    )
+    region_rows = await session.execute(
+        select(subq.c.region).order_by(subq.c._sort, subq.c.region)
+    )
+    result["regions"] = [r[0] for r in region_rows]
+
     for col, key in (
-        (JobOffer.region, "regions"),
-        (JobOffer.city, "cities"),
         (JobOffer.institution, "institutions"),
         (JobOffer.state, "states"),
     ):
@@ -48,7 +63,6 @@ async def get_offers(
     session: AsyncSession,
     *,
     region: Optional[str] = None,
-    city: Optional[str] = None,
     institution: Optional[str] = None,
     q: Optional[str] = None,
     states: list[str] | None = None,
@@ -109,8 +123,6 @@ async def get_offers(
 
     if region:
         stmt = stmt.where(JobOffer.region == region)
-    if city:
-        stmt = stmt.where(JobOffer.city == city)
     if institution:
         stmt = stmt.where(JobOffer.institution == institution)
     if q:
@@ -130,8 +142,6 @@ async def get_offers(
     count_stmt = select(func.count()).select_from(JobOffer)
     if region:
         count_stmt = count_stmt.where(JobOffer.region == region)
-    if city:
-        count_stmt = count_stmt.where(JobOffer.city == city)
     if institution:
         count_stmt = count_stmt.where(JobOffer.institution == institution)
     if q:
