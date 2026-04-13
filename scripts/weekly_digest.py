@@ -41,7 +41,7 @@ _RECENT_OFFERS_SQL = text("""
     SELECT id, title, institution, region, close_date, url
     FROM   job_offers
     WHERE  is_active = TRUE
-      AND  created_at >= NOW() - CAST(:days || ' days' AS INTERVAL)
+      AND  created_at >= NOW() - (:days * INTERVAL '1 day')
 """)
 
 _QUEUE_INSERT_SQL = text("""

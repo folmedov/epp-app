@@ -35,27 +35,27 @@ LOGGER = logging.getLogger(__name__)
 _DELETE_SENT_SQL = text("""
     DELETE FROM notification_queue
     WHERE  status = 'sent'
-      AND  sent_at < NOW() - CAST(:days || ' days' AS INTERVAL)
+      AND  sent_at < NOW() - (:days * INTERVAL '1 day')
 """)
 
 _DELETE_PENDING_SQL = text("""
     DELETE FROM notification_queue
     WHERE  status = 'pending'
-      AND  created_at < NOW() - CAST(:days || ' days' AS INTERVAL)
+      AND  created_at < NOW() - (:days * INTERVAL '1 day')
 """)
 
 _COUNT_SENT_SQL = text("""
     SELECT COUNT(*) AS cnt
     FROM   notification_queue
     WHERE  status = 'sent'
-      AND  sent_at < NOW() - CAST(:days || ' days' AS INTERVAL)
+      AND  sent_at < NOW() - (:days * INTERVAL '1 day')
 """)
 
 _COUNT_PENDING_SQL = text("""
     SELECT COUNT(*) AS cnt
     FROM   notification_queue
     WHERE  status = 'pending'
-      AND  created_at < NOW() - CAST(:days || ' days' AS INTERVAL)
+      AND  created_at < NOW() - (:days * INTERVAL '1 day')
 """)
 
 
