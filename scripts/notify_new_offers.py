@@ -17,7 +17,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
-import sys
 from uuid import UUID, uuid4
 
 from sqlalchemy import text
@@ -39,9 +38,17 @@ LOGGER = logging.getLogger(__name__)
 _UNNOTIFIED_SQL = text("""
     SELECT id, title, institution, region, close_date, url
     FROM   job_offers
-    WHERE  notified_at IS NULL
-      AND  is_active = TRUE
+    WHERE  is_active = TRUE
       AND  state = 'postulacion'
+      AND  (notified_at IS NULL
+        OR EXISTS (
+          SELECT 1
+          FROM   notification_queue nq
+          WHERE  nq.job_offer_id = job_offers.id
+            AND  nq.notification_type = 'immediate'
+            AND  nq.status IN ('pending', 'failed')
+            AND  nq.attempts < 3
+        ))
 """)
 
 _QUEUE_INSERT_SQL = text("""
@@ -64,13 +71,33 @@ _MARK_SENT_SQL = text("""
     WHERE  subscription_id = :subscription_id
       AND  job_offer_id = ANY(:offer_ids)
       AND  notification_type = 'immediate'
-      AND  status = 'pending'
+      AND  status IN ('pending', 'failed')
 """)
 
 _STAMP_NOTIFIED_SQL = text("""
     UPDATE job_offers
     SET    notified_at = NOW()
     WHERE  id = ANY(:offer_ids)
+""")
+
+_MARK_FAILED_SQL = text("""
+    UPDATE notification_queue
+    SET    status = 'failed',
+           attempts = attempts + 1
+    WHERE  subscription_id = :subscription_id
+      AND  job_offer_id = ANY(:offer_ids)
+      AND  notification_type = 'immediate'
+      AND  status IN ('pending', 'failed')
+""")
+
+_FAILED_EXCEEDED_SQL = text("""
+    SELECT job_offer_id
+    FROM   notification_queue
+    WHERE  subscription_id = :subscription_id
+      AND  job_offer_id = ANY(:offer_ids)
+      AND  notification_type = 'immediate'
+      AND  status = 'failed'
+      AND  attempts >= 3
 """)
 
 _ALREADY_SENT_FOR_SUB_SQL = text("""
@@ -132,21 +159,11 @@ async def _process(session: AsyncSession, dry_run: bool) -> None:
 
     notified_count = 0
     error_count = 0
+    sent_offer_ids: set[UUID] = set()
 
     # Step 3: process each matched subscription
     for sub_id, matched_offer_ids in matches.items():
-        # 3a: insert queue rows (idempotent)
-        for offer_id in matched_offer_ids:
-            await session.execute(
-                _QUEUE_INSERT_SQL,
-                {
-                    "id": str(uuid4()),
-                    "subscription_id": str(sub_id),
-                    "job_offer_id": str(offer_id),
-                },
-            )
-
-        # 3b: filter out offers already sent to this subscriber (e.g. welcome email)
+        # 3a: filter out offers already sent to this subscriber
         already_sent_result = await session.execute(
             _ALREADY_SENT_FOR_SUB_SQL,
             {
@@ -161,7 +178,38 @@ async def _process(session: AsyncSession, dry_run: bool) -> None:
             LOGGER.info("Subscription %s: all matched offers already sent — skipping.", sub_id)
             continue
 
-        # 3c: load subscription email + unsubscribe token
+        # 3b: filter out offers that exceeded retry limit
+        exceeded_result = await session.execute(
+            _FAILED_EXCEEDED_SQL,
+            {
+                "subscription_id": str(sub_id),
+                "offer_ids": [str(oid) for oid in new_offer_ids],
+            },
+        )
+        exceeded_ids = {UUID(str(row.job_offer_id)) for row in exceeded_result.fetchall()}
+        if exceeded_ids:
+            LOGGER.warning(
+                "Subscription %s: skipping %d offer(s) that exceeded max retries",
+                sub_id,
+                len(exceeded_ids),
+            )
+        new_offer_ids = [oid for oid in new_offer_ids if oid not in exceeded_ids]
+
+        if not new_offer_ids:
+            continue
+
+        # 3c: insert queue rows (idempotent)
+        for offer_id in new_offer_ids:
+            await session.execute(
+                _QUEUE_INSERT_SQL,
+                {
+                    "id": str(uuid4()),
+                    "subscription_id": str(sub_id),
+                    "job_offer_id": str(offer_id),
+                },
+            )
+
+        # 3d: load subscription email + unsubscribe token
         sub_result = await session.execute(
             _SUBSCRIPTION_SQL,
             {"subscription_id": str(sub_id)},
@@ -174,22 +222,23 @@ async def _process(session: AsyncSession, dry_run: bool) -> None:
         email: str = sub_row.email
         unsubscribe_token: str = str(sub_row.unsubscribe_token)
 
-        # 3d: build OfferRow list for this subscriber (new offers only)
+        # 3e: build OfferRow list for this subscriber
         offer_list: list[OfferRow] = [
             offers_by_id[oid] for oid in new_offer_ids if oid in offers_by_id
         ]
 
         if dry_run:
             LOGGER.info(
-                "[dry-run] Would send %d offer(s) to %s (%d already sent skipped)",
+                "[dry-run] Would send %d offer(s) to %s (%d already sent, %d exceeded skipped)",
                 len(offer_list),
                 email,
                 len(already_sent_ids),
+                len(exceeded_ids),
             )
             notified_count += 1
             continue
 
-        # 3d: send email
+        # 3f: send email
         try:
             await send_notification_email(
                 email=email,
@@ -199,10 +248,17 @@ async def _process(session: AsyncSession, dry_run: bool) -> None:
             )
         except NotificationError as exc:
             LOGGER.warning("Failed to send notification to %s: %s", email, exc)
+            await session.execute(
+                _MARK_FAILED_SQL,
+                {
+                    "subscription_id": str(sub_id),
+                    "offer_ids": [str(oid) for oid in new_offer_ids],
+                },
+            )
             error_count += 1
             continue
 
-        # 3e: mark queue rows as sent (only new offers)
+        # 3g: mark queue rows as sent
         await session.execute(
             _MARK_SENT_SQL,
             {
@@ -210,20 +266,24 @@ async def _process(session: AsyncSession, dry_run: bool) -> None:
                 "offer_ids": [str(oid) for oid in new_offer_ids],
             },
         )
+        sent_offer_ids.update(new_offer_ids)
         notified_count += 1
 
-    # Step 4: stamp notified_at on all processed offers
-    if not dry_run:
+    # Step 4: stamp notified_at only on offers sent successfully
+    if sent_offer_ids and not dry_run:
         await session.execute(
             _STAMP_NOTIFIED_SQL,
-            {"offer_ids": [str(oid) for oid in offer_ids]},
+            {"offer_ids": [str(oid) for oid in sent_offer_ids]},
         )
-        LOGGER.info("Stamped notified_at on %d offer(s).", len(offer_ids))
-    else:
-        LOGGER.info("[dry-run] Would stamp notified_at on %d offer(s).", len(offer_ids))
+        LOGGER.info("Stamped notified_at on %d offer(s).", len(sent_offer_ids))
+    elif dry_run and sent_offer_ids:
+        LOGGER.info(
+            "[dry-run] Would stamp notified_at on %d offer(s).",
+            len(sent_offer_ids),
+        )
 
     LOGGER.info(
-        "Done. Offers processed: %d | Subscribers notified: %d | Errors: %d",
+        "Done. Offers checked: %d | Subscribers notified: %d | Errors: %d",
         len(offer_ids),
         notified_count,
         error_count,

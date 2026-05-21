@@ -198,4 +198,19 @@ async def send_notification_email(
     LOGGER.info("Notification email sent to %s", email)
 
 
-__all__ = ["NotificationError", "OfferRow", "send_confirmation_email", "send_notification_email"]
+def check_smtp_config() -> None:
+    """Public wrapper for SMTP config validation.
+
+    Raises:
+        NotificationError: If any required SMTP env var is missing.
+    """
+    _check_smtp_config()
+
+
+__all__ = [
+    "NotificationError",
+    "OfferRow",
+    "check_smtp_config",
+    "send_confirmation_email",
+    "send_notification_email",
+]

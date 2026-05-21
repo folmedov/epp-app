@@ -73,7 +73,27 @@ _MARK_SENT_SQL = text("""
     WHERE  subscription_id = :subscription_id
       AND  job_offer_id = ANY(:offer_ids)
       AND  notification_type = 'digest'
-      AND  status = 'pending'
+      AND  status IN ('pending', 'failed')
+""")
+
+_MARK_FAILED_SQL = text("""
+    UPDATE notification_queue
+    SET    status = 'failed',
+           attempts = attempts + 1
+    WHERE  subscription_id = :subscription_id
+      AND  job_offer_id = ANY(:offer_ids)
+      AND  notification_type = 'digest'
+      AND  status IN ('pending', 'failed')
+""")
+
+_EXCEEDED_SQL = text("""
+    SELECT job_offer_id
+    FROM   notification_queue
+    WHERE  subscription_id = :subscription_id
+      AND  job_offer_id = ANY(:offer_ids)
+      AND  notification_type = 'digest'
+      AND  status = 'failed'
+      AND  attempts >= 3
 """)
 
 
@@ -127,8 +147,29 @@ async def _process(session: AsyncSession, dry_run: bool, since_days: int) -> Non
 
     # Step 3: process each matched subscription
     for sub_id, matched_offer_ids in matches.items():
-        # 3a: insert queue rows (idempotent)
-        for offer_id in matched_offer_ids:
+        # 3a: filter out offers that exceeded retry limit
+        exceeded_result = await session.execute(
+            _EXCEEDED_SQL,
+            {
+                "subscription_id": str(sub_id),
+                "offer_ids": [str(oid) for oid in matched_offer_ids],
+            },
+        )
+        exceeded_ids = {UUID(str(row.job_offer_id)) for row in exceeded_result.fetchall()}
+        if exceeded_ids:
+            LOGGER.warning(
+                "Subscription %s: skipping %d offer(s) that exceeded max retries",
+                sub_id,
+                len(exceeded_ids),
+            )
+        pending_offer_ids = [oid for oid in matched_offer_ids if oid not in exceeded_ids]
+
+        if not pending_offer_ids:
+            skipped_count += 1
+            continue
+
+        # 3b: insert queue rows (idempotent)
+        for offer_id in pending_offer_ids:
             await session.execute(
                 _QUEUE_INSERT_SQL,
                 {
@@ -138,27 +179,27 @@ async def _process(session: AsyncSession, dry_run: bool, since_days: int) -> Non
                 },
             )
 
-        # 3b: check if all matched offers already have a sent digest entry
+        # 3c: check if all pending offers already have a sent digest entry
         sent_result = await session.execute(
             _ALREADY_SENT_SQL,
             {
                 "subscription_id": str(sub_id),
-                "offer_ids": [str(oid) for oid in matched_offer_ids],
+                "offer_ids": [str(oid) for oid in pending_offer_ids],
             },
         )
         sent_row = sent_result.fetchone()
         already_sent_count: int = sent_row.cnt if sent_row else 0
 
-        if already_sent_count >= len(matched_offer_ids):
+        if already_sent_count >= len(pending_offer_ids):
             LOGGER.info(
                 "Subscription %s already received digest for all %d offer(s) — skipping.",
                 sub_id,
-                len(matched_offer_ids),
+                len(pending_offer_ids),
             )
             skipped_count += 1
             continue
 
-        # 3c: load subscription email + unsubscribe token
+        # 3d: load subscription email + unsubscribe token
         sub_result = await session.execute(
             _SUBSCRIPTION_SQL,
             {"subscription_id": str(sub_id)},
@@ -171,9 +212,9 @@ async def _process(session: AsyncSession, dry_run: bool, since_days: int) -> Non
         email: str = sub_row.email
         unsubscribe_token: str = str(sub_row.unsubscribe_token)
 
-        # 3d: build OfferRow list for this subscriber
+        # 3e: build OfferRow list for this subscriber
         offer_list: list[OfferRow] = [
-            offers_by_id[oid] for oid in matched_offer_ids if oid in offers_by_id
+            offers_by_id[oid] for oid in pending_offer_ids if oid in offers_by_id
         ]
 
         if dry_run:
@@ -185,7 +226,7 @@ async def _process(session: AsyncSession, dry_run: bool, since_days: int) -> Non
             notified_count += 1
             continue
 
-        # 3e: send digest email
+        # 3f: send digest email
         try:
             await send_notification_email(
                 email=email,
@@ -195,15 +236,22 @@ async def _process(session: AsyncSession, dry_run: bool, since_days: int) -> Non
             )
         except NotificationError as exc:
             LOGGER.warning("Failed to send digest to %s: %s", email, exc)
+            await session.execute(
+                _MARK_FAILED_SQL,
+                {
+                    "subscription_id": str(sub_id),
+                    "offer_ids": [str(oid) for oid in pending_offer_ids],
+                },
+            )
             error_count += 1
             continue
 
-        # 3f: mark queue rows as sent
+        # 3g: mark queue rows as sent
         await session.execute(
             _MARK_SENT_SQL,
             {
                 "subscription_id": str(sub_id),
-                "offer_ids": [str(oid) for oid in matched_offer_ids],
+                "offer_ids": [str(oid) for oid in pending_offer_ids],
             },
         )
         notified_count += 1
