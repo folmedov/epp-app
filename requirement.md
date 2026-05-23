@@ -108,17 +108,28 @@
 
 ### Current System State
 
-After Sprint 8.2, the subscription and notification system works as follows:
+After Sprint 10.1, the subscription and notification system works as follows:
 
-**Subscription** is email-only (no keywords). The `subscriptions` table stores: `email`, `confirmed`, `confirmation_token`, `unsubscribe_token`. The `keywords` column was removed. Confirmation is double opt-in with 24h expiry.
+**Subscription** is email-only (no keywords). The `subscriptions` table stores: `email`, `confirmed`, `confirmation_token`, `unsubscribe_token`, `token_invalidated_at`. Confirmation is double opt-in with 24h expiry. Auth uses the `unsubscribe_token` as a Bearer token in the `Authorization` header, with `?token=` query param fallback for HTMX.
 
-**Offer following** is the core mechanic. A user subscribes with their email, clicks the confirmation link, which redirects to `/save-token/{unsubscribe_token}` (stores token in localStorage), then to `/follows?token=...`. Once authenticated via token, users can follow/unfollow individual offers. The follow button appears on each offer row (3 states: no token → link to subscribe, token + not followed → "Seguir", token + followed → "Siguiendo").
+**Auth flow**: Register at `/auth/register` (sends confirmation email), confirm via `/auth/confirm/{token}`, save token via `/auth/magic-link/{token}` (stores in localStorage), then the navbar shows the user email in a dropdown with links to "Mis ofertas", "Mis busquedas", and "Cerrar sesion". Login at `/auth/login` sends a magic link. Logout is client-side (removes token from localStorage).
 
-**Dashboard** at `/follows` shows all followed offers with their current state. An unauthenticated user sees a form to receive a magic link via email. The "Seguimientos" link in the navbar is only visible when a token is present in localStorage.
+**Offer following**: Users follow/unfollow individual offers. The follow button appears on each offer row (3 states: no token → link to login, token + not followed → "Seguir", token + followed → "Siguiendo"). Dashboard at `/follows` shows followed offers with the same columns as the home page table.
 
-**Notifications** are state-change-only. After each ingestion run, `scripts/notify_followed_offers.py` compares each followed offer's current `state` against `offer_follows.last_state`. When a change is detected, an email is sent to the subscriber with the old and new state. The pipeline runs: `ingest_all.py` → `close_stale_offers.py` → `notify_followed_offers.py`. Three email templates exist: `state_change_email`, `follow_link_email` (magic link), and `confirmation_email` (double opt-in).
+**Search subscriptions**: Users subscribe to search terms at `/search-subscriptions`. Each term is a row in `search_subscriptions` with an active toggle. After each ingestion run, `scripts/match_search_subscriptions.py` matches new offers against active terms via `unaccent ILIKE` on offer title, deduplicated through `notification_queue`, and sends immediate email per match via `send_search_match_email`.
 
-**Deleted files**: `scripts/notify_new_offers.py`, `scripts/weekly_digest.py`, `scripts/cleanup_notification_queue.py`, `src/notifications/matcher.py`, `notification_immediate.{html,txt}`, `notification_digest.{html,txt}`. The `notification_queue` table is preserved but emptied. The `send_notification_email` function was removed from `email.py`.
+**Notifications** pipelines:
+- State-change: `ingest_all.py` → `close_stale_offers.py` → `notify_followed_offers.py` (followed offers)
+- Search match: `ingest_all.py` → `match_search_subscriptions.py` (search subscriptions)
+
+**Email templates**: `confirm_email`, `follow_link_email` (magic link), `state_change_email`, `search_match_email`.
+
+**Navbar auth**: Server-rendered initially (unauthenticated shows "Iniciar sesion" + "Registrarse"). On page load, JS validates token via `GET /auth/me` and swaps navbar to authenticated state: email dropdown with "Mis ofertas", "Mis busquedas", "Cerrar sesion".
+
+**Deleted files**: `scripts/notify_new_offers.py`, `scripts/weekly_digest.py`, `scripts/cleanup_notification_queue.py`, `src/notifications/matcher.py`, `notification_immediate.{html,txt}`, `notification_digest.{html,txt}`. The `notification_queue` table is preserved and reused for search-match dedup.
 
 ### 🔐 Sprint 9: Auth — Register, Login, Logout
-- [ ] **9.1 Email-based auth with Bearer token**: Add explicit register/login/logout flows while keeping the passwordless, email-based approach. Reuse `unsubscribe_token` as a Bearer token sent via `Authorization` header. New auth endpoints (`/auth/register`, `/auth/login`, `/auth/logout`, `/auth/me`, `/auth/magic-link/{token}`), auth middleware/dependency, and UI navbar that shows login/register or user email/logout depending on auth state. Existing `?token=` query param kept for HTMX backward compat. (details: docs/sprints/sprint_9_1_auth_login_logout.md)
+- [x] **9.1 Email-based auth with Bearer token**: Add explicit register/login/logout flows while keeping the passwordless, email-based approach. Reuse `unsubscribe_token` as a Bearer token sent via `Authorization` header. New auth endpoints (`/auth/register`, `/auth/login`, `/auth/logout`, `/auth/me`, `/auth/magic-link/{token}`), auth middleware/dependency, and UI navbar that shows login/register or user email/logout depending on auth state. Existing `?token=` query param kept for HTMX backward compat. (details: docs/sprints/sprint_9_1_auth_login_logout.md)
+
+### 🔍 Sprint 10: Search Subscriptions
+- [x] **10.1 Search subscriptions**: Allow users to subscribe to search terms and receive immediate email notifications when new offers match. New table `search_subscriptions` (subscription_id, term, active). New UI page at `/search-subscriptions` for managing terms. New script `scripts/match_search_subscriptions.py` integrated into `ingest_all.py`. Matching uses `unaccent ILIKE` on offer title against each active term, deduplicated via `notification_queue` with type `search_match`. Email sent immediately per match via `send_search_match_email`. (details: docs/sprints/sprint_10_1_search_subscriptions.md)

@@ -172,6 +172,15 @@ def main() -> None:
         if rc_follow != 0:
             LOGGER.warning("notify_followed_offers completed with errors (non-fatal). Review logs.")
 
+        # Match new offers against search subscriptions (non-fatal)
+        rc_search = _run_loader(
+            "match_search",
+            _SCRIPTS_DIR / "match_search_subscriptions.py",
+            common,
+        )
+        if rc_search != 0:
+            LOGGER.warning("match_search_subscriptions completed with errors (non-fatal). Review logs.")
+
 
 if __name__ == "__main__":
     main()

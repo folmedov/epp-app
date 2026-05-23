@@ -10,6 +10,10 @@ Routes:
   DELETE /offers/{id}/follow   — unfollow an offer (auth via Bearer or ?token=)
   GET  /offers/follows         — JSON partial of followed offers (auth via Bearer or ?token=)
   GET  /follows                — full dashboard page (auth via Bearer or ?token=)
+  GET  /search-subscriptions   — manage search subscription terms (page)
+  POST /search-subscriptions   — add a search term
+  DELETE /search-subscriptions/{id} — remove a search term
+  PATCH /search-subscriptions/{id}/toggle — toggle active state
 """
 
 from __future__ import annotations
@@ -22,7 +26,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database.models import OfferFollow, Subscription
+from src.database.models import OfferFollow, SearchSubscription, Subscription
 from src.notifications.email import NotificationError, send_follow_link_email
 from src.web.auth import get_optional_subscription
 from src.web.deps import get_db_session
@@ -269,3 +273,138 @@ async def follows_dashboard(
             "email": sub.email,
         },
     )
+
+
+# ── Search subscriptions ──────────────────────────────────────────────────────
+
+
+@router.get("/search-subscriptions", response_class=HTMLResponse)
+async def search_subscriptions_page(
+    request: Request,
+    session: DbSession,
+    sub: Subscription = Depends(get_optional_subscription),
+) -> HTMLResponse:
+    """Manage search subscription terms (add / remove / toggle)."""
+    if sub is None:
+        return templates.TemplateResponse(
+            request,
+            "search_subscriptions.html",
+            {
+                "valid_token": False,
+                "subscription": None,
+                "terms": [],
+                "token": "",
+            },
+        )
+
+    result = await session.execute(
+        select(SearchSubscription)
+        .where(SearchSubscription.subscription_id == sub.id)
+        .order_by(SearchSubscription.created_at.desc())
+    )
+    terms = result.scalars().all()
+
+    return templates.TemplateResponse(
+        request,
+        "search_subscriptions.html",
+        {
+            "valid_token": True,
+            "subscription": sub,
+            "terms": terms,
+            "token": str(sub.unsubscribe_token) if sub.unsubscribe_token else "",
+            "email": sub.email,
+        },
+    )
+
+
+@router.post("/search-subscriptions")
+async def add_search_term(
+    request: Request,
+    session: DbSession,
+    sub: Subscription = Depends(get_optional_subscription),
+    term: Annotated[str, Form()] = "",
+) -> HTMLResponse:
+    """Add a new search term for the current subscription."""
+    if sub is None:
+        return templates.TemplateResponse(
+            request,
+            "search_subscriptions.html",
+            {
+                "valid_token": False,
+                "subscription": None,
+                "terms": [],
+                "token": "",
+                "error": "Debes iniciar sesion para agregar busquedas.",
+            },
+        )
+
+    term = term.strip().lower()
+    if not term:
+        return await search_subscriptions_page(request, session, sub)
+
+    # Check for duplicates
+    result = await session.execute(
+        select(SearchSubscription).where(
+            SearchSubscription.subscription_id == sub.id,
+            SearchSubscription.term == term,
+        )
+    )
+    if result.scalar_one_or_none() is None:
+        ss = SearchSubscription(
+            subscription_id=sub.id,
+            term=term,
+        )
+        session.add(ss)
+        await session.commit()
+
+    return await search_subscriptions_page(request, session, sub)
+
+
+@router.post("/search-subscriptions/{ss_id}/delete")
+async def remove_search_term(
+    request: Request,
+    ss_id: str,
+    session: DbSession,
+    sub: Subscription = Depends(get_optional_subscription),
+) -> HTMLResponse:
+    """Remove a search term."""
+    if sub is None:
+        return HTMLResponse(status_code=401, content="No autorizado")
+
+    result = await session.execute(
+        select(SearchSubscription).where(
+            SearchSubscription.id == ss_id,
+            SearchSubscription.subscription_id == sub.id,
+        )
+    )
+    ss = result.scalar_one_or_none()
+    if ss is not None:
+        await session.delete(ss)
+        await session.commit()
+
+    return await search_subscriptions_page(request, session, sub)
+
+
+@router.post("/search-subscriptions/{ss_id}/toggle")
+async def toggle_search_term(
+    request: Request,
+    ss_id: str,
+    session: DbSession,
+    sub: Subscription = Depends(get_optional_subscription),
+) -> HTMLResponse:
+    """Toggle a search term's active state."""
+    if sub is None:
+        return HTMLResponse(status_code=401, content="No autorizado")
+
+    result = await session.execute(
+        select(SearchSubscription).where(
+            SearchSubscription.id == ss_id,
+            SearchSubscription.subscription_id == sub.id,
+        )
+    )
+    ss = result.scalar_one_or_none()
+    if ss is not None:
+        ss.active = not ss.active
+        await session.commit()
+
+    return await search_subscriptions_page(request, session, sub)

@@ -233,6 +233,50 @@ async def send_follow_link_email(email: str, token: str) -> None:
     LOGGER.info("Follow link email sent to %s", email)
 
 
+async def send_search_match_email(
+    email: str,
+    offer: OfferRow,
+    term: str,
+    unsubscribe_token: str,
+) -> None:
+    """Send a notification about a new offer matching a subscribed search term.
+
+    Args:
+        email: Recipient email address.
+        offer: The matching offer.
+        term: The search term that matched.
+        unsubscribe_token: Unsubscribe token (UUID string).
+
+    Raises:
+        NotificationError: If SMTP is not configured or the send fails.
+    """
+    _check_smtp_config()
+
+    unsubscribe_url = f"{settings.APP_BASE_URL}/unsubscribe/{unsubscribe_token}"
+    search_url = f"{settings.APP_BASE_URL}/search-subscriptions?token={unsubscribe_token}"
+    context = {
+        "offer": offer,
+        "term": term,
+        "unsubscribe_url": unsubscribe_url,
+        "search_url": search_url,
+        "base_url": settings.APP_BASE_URL,
+    }
+
+    html_body = _render_template("search_match_email.html", context)
+    plain_body = _render_template("search_match_email.txt", context)
+
+    msg = _build_message(
+        to_email=email,
+        subject=f"Nueva oferta: {offer.title} coincide con «{term}»",
+        html_body=html_body,
+        plain_body=plain_body,
+    )
+
+    LOGGER.info("Sending search-match email to %s for term '%s'", email, term)
+    await _send(msg)
+    LOGGER.info("Search-match email sent to %s", email)
+
+
 __all__ = [
     "NotificationError",
     "OfferRow",
@@ -240,4 +284,5 @@ __all__ = [
     "send_confirmation_email",
     "send_follow_link_email",
     "send_state_change_email",
+    "send_search_match_email",
 ]

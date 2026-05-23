@@ -92,7 +92,31 @@ class JobOfferSource(Base):
 	__table_args__ = (UniqueConstraint("job_offer_id", "source", name="uq_job_offer_sources_job_offer_id_source"),)
 
 
-__all__ = ["Base", "JobOffer", "JobOfferSource", "Subscription", "NotificationQueue", "OfferFollow"]
+__all__ = ["Base", "JobOffer", "JobOfferSource", "Subscription", "NotificationQueue", "OfferFollow", "SearchSubscription"]
+
+
+class SearchSubscription(Base):
+    """Per-term search subscription for new-offer matching."""
+
+    __tablename__ = "search_subscriptions"
+    __table_args__ = (
+        UniqueConstraint("subscription_id", "term", name="uq_search_subscriptions"),
+    )
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    subscription_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("subscriptions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    term: Mapped[str] = mapped_column(String(255), nullable=False)
+    active: Mapped[bool] = mapped_column(
+        Boolean(), nullable=False, default=True, server_default="true"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=False), nullable=False, server_default=func.now()
+    )
 
 
 class OfferFollow(Base):

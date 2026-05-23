@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="UTF-8"><title>Nueva oferta encontrada</title></head>
+<body style="font-family: sans-serif; padding: 20px;">
+  <h2>Nueva oferta para tu busqueda «{{ term }}»</h2>
+  <p><strong>{{ offer.title }}</strong> — {{ offer.institution }}</p>
+  {% if offer.region %}
+  <p>Region: {{ offer.region }}</p>
+  {% endif %}
+  {% if offer.close_date %}
+  <p>Fecha de cierre: {{ offer.close_date }}</p>
+  {% endif %}
+  {% if offer.url %}
+  <p><a href="{{ offer.url }}">Ver oferta en portal</a></p>
+  {% endif %}
+  <p><a href="{{ search_url }}">Administrar tus busquedas suscritas</a></p>
+  <hr>
+  <p style="color: #999; font-size: 12px;">
+    <a href="{{ unsubscribe_url }}">Cancelar suscripcion</a> —
+    Job Tracker, {{ base_url }}
+  </p>
+</body>
+</html>

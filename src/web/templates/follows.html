@@ -6,9 +6,6 @@
 <main class="main-panel">
   <div class="panel-header">
     <h2>Mis ofertas seguidas</h2>
-    {% if email %}
-    <span class="results-count">{{ email }}</span>
-    {% endif %}
   </div>
 
   {% if not valid_token %}
@@ -48,7 +45,11 @@
           <tr>
             <th scope="col">Cargo</th>
             <th scope="col">Institucion</th>
+            <th scope="col">Region</th>
+            <th scope="col">Ciudad</th>
+            <th scope="col">Sueldo Bruto</th>
             <th scope="col">Estado</th>
+            <th scope="col">Inicio</th>
             <th scope="col">Cierre</th>
             <th scope="col">Enlace</th>
             <th scope="col">Accion</th>
@@ -69,11 +70,21 @@
           <tr>
             <td class="col-title">{{ offer.title }}</td>
             <td>{{ offer.institution }}</td>
+            <td>{{ offer.region or '—' }}</td>
+            <td>{{ offer.city or '—' }}</td>
+            <td>{{ offer.gross_salary | clp }}</td>
             <td><span class="badge {{ badge_class }}">{{ offer.state }}</span></td>
+            <td>{{ offer.start_date | fmt_date }}</td>
             <td>{{ offer.close_date | fmt_date_only }}</td>
             <td class="link-cell">
               {% if offer.url %}
-              <a href="{{ offer.url }}" target="_blank" rel="noopener noreferrer">Ver</a>
+              <a href="{{ offer.url }}" target="_blank" rel="noopener noreferrer" aria-label="Ver oferta: {{ offer.title }}">
+                Ver
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+                  <polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
+                </svg>
+              </a>
               {% else %}—{% endif %}
             </td>
             <td>

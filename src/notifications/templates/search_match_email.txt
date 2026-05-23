@@ -1,0 +1,14 @@
+Nueva oferta para tu busqueda «{{ term }}»
+
+{{ offer.title }} — {{ offer.institution }}{% if offer.region %}
+Region: {{ offer.region }}{% endif %}{% if offer.close_date %}
+Fecha de cierre: {{ offer.close_date }}{% endif %}{% if offer.url %}
+Ver oferta en portal: {{ offer.url }}{% endif %}
+
+Administrar tus busquedas suscritas:
+{{ search_url }}
+
+--
+Job Tracker, {{ base_url }}
+
+Cancelar suscripcion: {{ unsubscribe_url }}
