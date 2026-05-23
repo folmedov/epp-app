@@ -12,7 +12,7 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import Boolean, DateTime, Integer, Numeric, String, SmallInteger, func, ForeignKey, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Numeric, String, SmallInteger, func, ForeignKey, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncAttrs
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -63,7 +63,6 @@ class JobOffer(Base):
 	is_active: Mapped[bool] = mapped_column(
 		Boolean(), nullable=False, default=True, server_default="true", index=True
 	)
-	notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False), nullable=True)
 
 
 class JobOfferSource(Base):
@@ -134,6 +133,7 @@ class Subscription(Base):
 	confirmation_token: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
 	token_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False), nullable=True)
 	unsubscribe_token: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
+	token_invalidated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False), nullable=True)
 	created_at: Mapped[datetime] = mapped_column(
 		DateTime(timezone=False), nullable=False, server_default=func.now()
 	)

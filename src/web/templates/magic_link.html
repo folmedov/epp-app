@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+
+{% block title %}Accediendo — Job Tracker{% endblock %}
+
+{% block content %}
+<main class="main-panel" style="max-width: 480px; margin: 0 auto;">
+  <div class="table-card">
+    {% if valid %}
+      <div class="empty-state" role="status">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
+        </svg>
+        <p>¡Sesion iniciada! Ya puedes seguir y gestionar tus ofertas.</p>
+        <p style="font-size: 14px; color: #666;">Seras redirigido automaticamente...</p>
+        <noscript>
+          <a href="/" class="topbar-nav-link">Ir al inicio</a>
+        </noscript>
+      </div>
+    {% else %}
+      <div class="empty-state" role="alert">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+        </svg>
+        <p>El enlace no es valido o ha expirado.</p>
+        <p style="font-size: 14px; color: #666;">
+          Solicita un nuevo enlace desde la pagina de
+          <a href="/auth/login">inicio de sesion</a>.
+        </p>
+        <a href="/" class="topbar-nav-link">Volver al inicio</a>
+      </div>
+    {% endif %}
+  </div>
+</main>
+
+{% if valid and token %}
+<script>
+  localStorage.setItem('unsubscribe_token', '{{ token }}');
+  setTimeout(function() {
+    window.location.href = '/';
+  }, 1500);
+</script>
+{% endif %}
+{% endblock %}

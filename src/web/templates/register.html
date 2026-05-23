@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Registrarse — Job Tracker{% endblock %}
+
+{% block content %}
+<div class="page-content">
+  <div class="card subscribe-card">
+    {% if submitted %}
+      <h1>Revisa tu email</h1>
+      <p>Te enviamos un enlace de confirmacion al correo indicado. Haz clic en el para activar tu cuenta.</p>
+      <p style="margin-top: 24px;"><a href="/">Volver al inicio</a></p>
+    {% else %}
+      <h1>Crear cuenta</h1>
+      <p>Registrate con tu email para seguir ofertas y recibir notificaciones cuando cambien de estado.</p>
+
+      {% if error %}
+        <div class="form-error" role="alert">{{ error|safe }}</div>
+      {% endif %}
+
+      <form method="post" action="/auth/register">
+        <div class="form-group">
+          <label for="reg-email">Email</label>
+          <input
+            type="email"
+            id="reg-email"
+            name="email"
+            required
+            maxlength="254"
+            placeholder="tu@email.com"
+            autocomplete="email"
+          />
+        </div>
+        <button type="submit" class="btn btn-primary">Crear cuenta</button>
+      </form>
+
+      <p style="margin-top: 16px; font-size: 14px;">
+        ¿Ya tienes cuenta? <a href="/auth/login">Inicia sesion</a>
+      </p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Iniciar sesion — Job Tracker{% endblock %}
+
+{% block content %}
+<div class="page-content">
+  <div class="card subscribe-card">
+    {% if sent %}
+      <h1>Revisa tu email</h1>
+      <p>Si el correo ingresado esta registrado, recibiras un enlace magico para iniciar sesion.</p>
+      <p style="margin-top: 24px;"><a href="/">Volver al inicio</a></p>
+    {% else %}
+      <h1>Iniciar sesion</h1>
+      <p>Ingresa tu email para recibir un enlace magico.</p>
+
+      {% if error %}
+        <div class="form-error" role="alert">{{ error }}</div>
+      {% endif %}
+
+      <form method="post" action="/auth/login">
+        <div class="form-group">
+          <label for="login-email">Email</label>
+          <input
+            type="email"
+            id="login-email"
+            name="email"
+            required
+            maxlength="254"
+            placeholder="tu@email.com"
+            autocomplete="email"
+          />
+        </div>
+        <button type="submit" class="btn btn-primary">Enviar enlace magico</button>
+      </form>
+
+      <p style="margin-top: 16px; font-size: 14px;">
+        ¿No tienes cuenta? <a href="/auth/register">Registrate aqui</a>
+      </p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

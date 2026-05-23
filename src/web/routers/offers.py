@@ -4,22 +4,32 @@ from __future__ import annotations
 
 from typing import Annotated, Optional
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Header, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.web.auth import get_optional_subscription
 from src.web.deps import get_db_session
 from src.web.queries import (
     get_filter_options,
     get_followed_offer_ids,
     get_offers,
-    get_subscription_by_token,
 )
 from src.web.templating import templates
 
 router = APIRouter()
 
 DbSession = Annotated[AsyncSession, Depends(get_db_session)]
+
+
+async def _resolve_token(
+    authorization: Annotated[str | None, Header(include_in_schema=False)] = None,
+    token: Annotated[str | None, Query()] = None,
+) -> str:
+    """Extract the raw token string from Bearer header or query param."""
+    if authorization and authorization.startswith("Bearer "):
+        return authorization[7:]
+    return token or ""
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -35,16 +45,15 @@ async def offers_page(
     sort: Optional[str] = None,
     sort_dir: str = "asc",
     include_inactive: bool = False,
-    token: Optional[str] = None,
+    token: str = Depends(_resolve_token),
 ) -> HTMLResponse:
     """Full page render of the offers list with filter dropdowns."""
     filter_opts = await get_filter_options(session)
 
     followed_ids: set[str] | None = None
-    if token:
-        sub = await get_subscription_by_token(session, token)
-        if sub is not None:
-            followed_ids = await get_followed_offer_ids(session, sub.id)
+    sub = await get_optional_subscription(session, authorization=f"Bearer {token}" if token else None)
+    if sub is not None:
+        followed_ids = await get_followed_offer_ids(session, sub.id)
 
     offers, has_next, total, total_pages = await get_offers(
         session,
@@ -74,7 +83,8 @@ async def offers_page(
             "sort_dir": sort_dir,
             "selected_states": state,
             "include_inactive": include_inactive,
-            "token": token or "",
+            "token": token,
+            "subscription": sub,
             **filter_opts,
         },
     )
@@ -93,7 +103,7 @@ async def offers_partial(
     sort: Optional[str] = None,
     sort_dir: str = "asc",
     include_inactive: bool = False,
-    token: Optional[str] = None,
+    token: str = Depends(_resolve_token),
 ) -> HTMLResponse:
     """HTMX partial: returns only the table rows matching the given filters.
 
@@ -105,10 +115,9 @@ async def offers_partial(
         return RedirectResponse(url=f"/?{qs}" if qs else "/", status_code=302)
 
     followed_ids: set[str] | None = None
-    if token:
-        sub = await get_subscription_by_token(session, token)
-        if sub is not None:
-            followed_ids = await get_followed_offer_ids(session, sub.id)
+    sub = await get_optional_subscription(session, authorization=f"Bearer {token}" if token else None)
+    if sub is not None:
+        followed_ids = await get_followed_offer_ids(session, sub.id)
 
     offers, has_next, total, total_pages = await get_offers(
         session,
@@ -136,6 +145,6 @@ async def offers_partial(
             "total_pages": total_pages,
             "sort": sort,
             "sort_dir": sort_dir,
-            "token": token or "",
+            "token": token,
         },
     )

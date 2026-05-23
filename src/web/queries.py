@@ -218,7 +218,11 @@ async def get_subscription_by_token(
     session: AsyncSession,
     token: str,
 ) -> Subscription | None:
-    """Look up a confirmed subscription by unsubscribe_token."""
+    """Look up a confirmed subscription by unsubscribe_token.
+
+    Rejects tokens that have been invalidated via logout
+    (token_invalidated_at IS NOT NULL).
+    """
     if not token:
         return None
     try:
@@ -229,6 +233,7 @@ async def get_subscription_by_token(
         select(Subscription).where(
             Subscription.unsubscribe_token == token,  # type: ignore[arg-type]
             Subscription.confirmed.is_(True),
+            Subscription.token_invalidated_at.is_(None),
         )
     )
     return result.scalar_one_or_none()

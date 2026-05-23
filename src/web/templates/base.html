@@ -7,14 +7,12 @@
     <link rel="stylesheet" href="{{ request.url_for('static', path='style.css') }}" />
     <script src="https://unpkg.com/htmx.org@1.9.12"></script>
     <script>
-    // ── Offer following: token from localStorage ───────────────────────────
-    // The unsubscribe_token is saved to localStorage when the user clicks a
-    // magic link (/save-token/{token}).  All follow/unfollow HTMX requests
-    // read it from here and append ?token= to the URL.
+    // ── Auth token from localStorage ──────────────────────────────────────
     function getToken() {
       return localStorage.getItem('unsubscribe_token') || '';
     }
 
+    // ── Offer following ───────────────────────────────────────────────────
     function toggleFollow(btn) {
       var offerId = btn.getAttribute('data-offer-id');
       var token   = getToken();
@@ -34,6 +32,70 @@
         });
     }
 
+    // ── Logout ────────────────────────────────────────────────────────────
+    function logout() {
+      var token = getToken();
+      if (!token) { window.location.href = '/auth/login'; return; }
+      fetch('/auth/logout', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + token }
+      })
+      .then(function() {
+        localStorage.removeItem('unsubscribe_token');
+        window.location.href = '/';
+      });
+    }
+
+    // ── User dropdown ───────────────────────────────────────────────────
+    function toggleDropdown(event) {
+      if (event) event.stopPropagation();
+      var menu = document.getElementById('user-dropdown');
+      var btn  = document.querySelector('.topbar-dropdown-trigger');
+      if (!menu) return;
+      var isOpen = menu.style.display === 'block';
+      menu.style.display = isOpen ? 'none' : 'block';
+      if (btn) btn.setAttribute('aria-expanded', !isOpen);
+    }
+
+    document.addEventListener('click', function() {
+      var menu = document.getElementById('user-dropdown');
+      var btn  = document.querySelector('.topbar-dropdown-trigger');
+      if (menu) menu.style.display = 'none';
+      if (btn) btn.setAttribute('aria-expanded', 'false');
+    });
+
+    // ── Restore auth state from localStorage on page load ────────────────
+    document.addEventListener('DOMContentLoaded', function() {
+      var token = localStorage.getItem('unsubscribe_token');
+      if (!token) return;
+      fetch('/auth/me', {
+        headers: { 'Authorization': 'Bearer ' + token }
+      })
+      .then(function(r) {
+        if (!r.ok) throw new Error('invalid token');
+        return r.json();
+      })
+      .then(function(data) {
+        var nav = document.getElementById('topbar-nav');
+        if (!nav) return;
+        nav.innerHTML =
+          '<div class="topbar-user-dropdown">' +
+            '<button class="topbar-dropdown-trigger" onclick="toggleDropdown(event)" aria-haspopup="true" aria-expanded="false">' +
+              data.email +
+              '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+                '<polyline points="6 9 12 15 18 9"/>' +
+              '</svg>' +
+            '</button>' +
+            '<div class="topbar-dropdown-menu" id="user-dropdown" role="menu">' +
+              '<a class="topbar-dropdown-item" role="menuitem" href="/follows?token=' + token + '">Mis ofertas</a>' +
+              '<a class="topbar-dropdown-item" role="menuitem" href="/auth/login" onclick="event.preventDefault(); logout()">Cerrar sesion</a>' +
+            '</div>' +
+          '</div>';
+      })
+      .catch(function() {
+        localStorage.removeItem('unsubscribe_token');
+      });
+    });
     </script>
 </head>
 <body>
@@ -49,28 +111,11 @@
                 Job Tracker
             </a>
             {% block topbar_search %}{% endblock %}
-            <a class="topbar-nav-link" href="/subscribe" aria-label="Suscribirme para seguir ofertas">
-                Suscribirme
-            </a>
-            <span id="follows-link" style="display:none;">
-            <a class="topbar-nav-link" href="/follows?token="
-                onclick="event.preventDefault(); var t = localStorage.getItem('unsubscribe_token'); if (t) { window.location.href = '/follows?token=' + t; }"
-                aria-label="Mis ofertas seguidas">
-                Seguimientos
-            </a>
-            </span>
+            {% include "partials/navbar.html" %}
         </div>
     </header>
     <div class="app-shell">
         {% block content %}{% endblock %}
     </div>
-    <script>
-    // Show "Seguimientos" link once the DOM is ready
-    var _tok = localStorage.getItem('unsubscribe_token');
-    if (_tok) {
-        var _el = document.getElementById('follows-link');
-        if (_el) _el.style.display = '';
-    }
-    </script>
 </body>
 </html>

@@ -7,6 +7,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
+from src.web.routers import auth as auth_router
 from src.web.routers import offers as offers_router
 from src.web.routers import subscriptions as subscriptions_router
 
@@ -17,6 +18,7 @@ def create_app() -> FastAPI:
     app = FastAPI(title="Job Tracker", docs_url=None, redoc_url=None)
 
     app.mount("/static", StaticFiles(directory=str(_BASE_DIR / "static")), name="static")
+    app.include_router(auth_router.router)
     app.include_router(offers_router.router)
     app.include_router(subscriptions_router.router)
 

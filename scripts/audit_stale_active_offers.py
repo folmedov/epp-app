@@ -28,7 +28,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 from uuid import UUID
 
-from sqlalchemy import select, text
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # ── project imports ──────────────────────────────────────────────────────────
@@ -191,7 +191,7 @@ def print_stale_report(stale: list[StaleOffer]) -> None:
         else:
             buckets[">90d"] += 1
 
-    print(f"\n  Distribución por días de atraso:")
+    print("\n  Distribución por días de atraso:")
     for label, count in buckets.items():
         bar = "█" * count
         print(f"    {label:>6}  {count:>4}  {bar}")
@@ -230,7 +230,7 @@ def print_teee_diff(sample: list[StaleOffer], ext_ids: dict[UUID, list[tuple[str
         if teee_eids:
             print(f"    external_id : {', '.join(teee_eids)}")
         else:
-            print(f"    external_id : (no TEEE id)")
+            print("    external_id : (no TEEE id)")
 
         if teee_hit:
             teee_state = teee_hit.get("state", "?")
@@ -245,12 +245,12 @@ def print_teee_diff(sample: list[StaleOffer], ext_ids: dict[UUID, list[tuple[str
             print(f"    ✦ TEEE fecha cierre  : {teee_close_str}")
         else:
             if teee_eids:
-                print(f"    ✗ No encontrada en TEEE activo/finalizado → posiblemente eliminada del índice")
+                print("    ✗ No encontrada en TEEE activo/finalizado → posiblemente eliminada del índice")
             else:
-                print(f"    ✗ Sin external_id TEEE → imposible cotejar directamente")
+                print("    ✗ Sin external_id TEEE → imposible cotejar directamente")
             not_found += 1
 
-    print(f"\n  Resumen cotejo:")
+    print("\n  Resumen cotejo:")
     print(f"    Estado cambiado en TEEE : {found_changed}")
     print(f"    Estado igual en TEEE    : {found_same}")
     print(f"    No encontradas en TEEE  : {not_found}")

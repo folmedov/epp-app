@@ -123,7 +123,7 @@ async def send_confirmation_email(email: str, token: str) -> None:
     """
     _check_smtp_config()
 
-    confirm_url = f"{settings.APP_BASE_URL}/confirm/{token}"
+    confirm_url = f"{settings.APP_BASE_URL}/auth/confirm/{token}"
     context = {
         "confirm_url": confirm_url,
         "base_url": settings.APP_BASE_URL,
@@ -212,7 +212,7 @@ async def send_follow_link_email(email: str, token: str) -> None:
     """
     _check_smtp_config()
 
-    save_url = f"{settings.APP_BASE_URL}/save-token/{token}"
+    save_url = f"{settings.APP_BASE_URL}/auth/magic-link/{token}"
     context = {
         "save_url": save_url,
         "base_url": settings.APP_BASE_URL,

@@ -24,7 +24,7 @@ def _format_clp(value: Decimal | None) -> str:
 	except Exception:
 		return "—"
 	# Use comma thousands then replace with dot for CLP style
-	return f"${{:,}}".format(amt).replace(",", ".")
+	return "${:,}".format(amt).replace(",", ".")
 
 
 def _format_date(value: datetime | None) -> str:
