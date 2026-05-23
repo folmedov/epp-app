@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+
+{% block title %}Enlace enviado — Job Tracker{% endblock %}
+
+{% block content %}
+<main class="main-panel" style="max-width: 480px; margin: 0 auto;">
+  <div class="table-card">
+    {% if error %}
+      <div class="empty-state" role="alert">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+        </svg>
+        <p>{{ error }}</p>
+        <a href="/" class="topbar-nav-link">Volver al inicio</a>
+      </div>
+    {% else %}
+      <div class="empty-state" role="status">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/>
+        </svg>
+        <p>Te hemos enviado un enlace mágico a tu correo.</p>
+        <p style="font-size: 14px; color: #666;">Revisa tu bandeja de entrada y haz clic en el enlace para empezar a seguir ofertas.</p>
+        <a href="/" class="topbar-nav-link">Volver al inicio</a>
+      </div>
+    {% endif %}
+  </div>
+</main>
+{% endblock %}

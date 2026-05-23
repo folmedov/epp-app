@@ -67,21 +67,21 @@ uv run ruff check --fix .
 # uv run mypy src/
 
 # Run web server locally
-uv run uvicorn src.web.app:app --reload --port 8000
+PYTHONPATH=. uv run uvicorn src.web.app:app --reload --port 8000
 
 # Run ingestion (daily policy)
-uv run python scripts/ingest_all.py --policy daily
+PYTHONPATH=. uv run python scripts/ingest_all.py --policy daily
 
 # Run ingestion (dry-run, no DB writes)
-uv run python scripts/ingest_all.py --policy daily --dry-run
+PYTHONPATH=. uv run python scripts/ingest_all.py --policy daily --dry-run
 
-# Run notifications only (dry-run)
-uv run python scripts/notify_new_offers.py --dry-run
+# Run followed-offer state-change notifications (dry-run)
+PYTHONPATH=. uv run python scripts/notify_followed_offers.py --dry-run
 
-# Apply DB migrations
+# Apply DB migrations (PYTHONPATH handled automatically by env.py)
 alembic upgrade head
 
-# Create new migration
+# Create new migration (PYTHONPATH handled automatically by env.py)
 alembic revision --autogenerate -m "description"
 ```
 
@@ -111,11 +111,9 @@ Sprint docs in `docs/sprints/` capture **context + design decisions + acceptance
 Keep the focus on *why* decisions were made, not *how* they are implemented in code. Detailed code will live in the actual source files and is subject to change during implementation.
 
 ### Notification system (known context)
-- `scripts/notify_new_offers.py`: runs after ingestion, matches new offers vs subscriptions, sends emails
-- Flow: `ingest_all.py` → `close_stale_offers.py` → `notify_new_offers.py`
-- Matcher uses `unaccent ILIKE` on keywords vs title (SQL in `src/notifications/matcher.py`)
-- Only `state = 'postulacion'` offers trigger notifications (business rule 6.10)
-- Queue rows stuck in `pending` indicate SMTP failures (no retry logic, known bug)
+- `scripts/notify_followed_offers.py`: runs after ingestion, detects state changes on followed offers, sends emails
+- Flow: `ingest_all.py` → `close_stale_offers.py` → `notify_followed_offers.py`
+- Matcher compares current `job_offers.state` against `offer_follows.last_state` (SQL in `scripts/notify_followed_offers.py`)
 - Email config: `SMTP_HOST`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` in env
 
 ## Coding Style

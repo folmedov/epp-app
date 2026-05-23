@@ -1,0 +1,16 @@
+Cambio de estado en oferta seguida
+
+{{ offer.title }} — {{ offer.institution }}
+
+Estado anterior: {{ old_state }}
+Estado actual:   {{ new_state }}{% if offer.close_date %}
+Fecha de cierre: {{ offer.close_date }}{% endif %}{% if offer.url %}
+Ver oferta en portal: {{ offer.url }}{% endif %}
+
+Ver todas tus ofertas seguidas:
+{{ follows_url }}
+
+--
+Job Tracker, {{ base_url }}
+
+Cancelar suscripción: {{ unsubscribe_url }}

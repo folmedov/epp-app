@@ -1,9 +1,15 @@
 """Route handlers for email subscription lifecycle.
 
 Routes:
-  POST /subscribe         — create unconfirmed subscription + send confirmation email
-  GET  /confirm/{token}   — double opt-in confirmation (single-use token, 24h expiry)
-  GET  /unsubscribe/{token} — one-click unsubscribe (permanent token, no auth required)
+  POST /subscribe              — create unconfirmed subscription + send confirmation email
+  GET  /confirm/{token}        — double opt-in confirmation (single-use token, 24h expiry)
+  GET  /unsubscribe/{token}    — one-click unsubscribe (permanent token, no auth required)
+  POST /send-follow-link       — send a magic link with the unsubscribe token
+  GET  /save-token/{token}     — save token to localStorage (magic link landing page)
+  POST /offers/{id}/follow     — follow an offer (auth via ?token=)
+  DELETE /offers/{id}/follow   — unfollow an offer (auth via ?token=)
+  GET  /offers/follows         — JSON partial of followed offers (auth via ?token=)
+  GET  /follows                — full dashboard page of followed offers (auth via ?token=)
 """
 
 from __future__ import annotations
@@ -13,19 +19,18 @@ from datetime import datetime, timedelta
 from typing import Annotated, Optional
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, Form, Request
-from fastapi.responses import HTMLResponse
-from sqlalchemy import ARRAY, String, bindparam, select, text
+from fastapi import APIRouter, Depends, Form, Query, Request
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database.models import Subscription
-from src.notifications.email import (
-    NotificationError,
-    OfferRow,
-    send_confirmation_email,
-    send_notification_email,
-)
+from src.database.models import OfferFollow, Subscription
+from src.notifications.email import NotificationError, send_confirmation_email, send_follow_link_email
 from src.web.deps import get_db_session
+from src.web.queries import (
+    get_followed_offers,
+    get_subscription_by_token,
+)
 from src.web.templating import templates
 
 LOGGER = logging.getLogger(__name__)
@@ -33,36 +38,6 @@ LOGGER = logging.getLogger(__name__)
 router = APIRouter()
 
 DbSession = Annotated[AsyncSession, Depends(get_db_session)]
-
-# ── SQL for welcome notification ──────────────────────────────────────────────
-
-_WELCOME_MATCH_SQL = text("""
-    SELECT jo.id, jo.title, jo.institution, jo.region, jo.close_date, jo.url
-    FROM   job_offers jo
-    JOIN   LATERAL unnest(:keywords) AS kw ON TRUE
-    WHERE  jo.is_active = TRUE
-      AND  jo.state = 'postulacion'
-      AND  unaccent(jo.title) ILIKE unaccent('%' || kw || '%')
-    GROUP  BY jo.id, jo.title, jo.institution, jo.region, jo.close_date, jo.url
-""").bindparams(bindparam("keywords", type_=ARRAY(String())))
-
-_WELCOME_QUEUE_INSERT_SQL = text("""
-    INSERT INTO notification_queue
-        (id, subscription_id, job_offer_id, notification_type, status)
-    VALUES
-        (:id, :subscription_id, :job_offer_id, 'immediate', 'pending')
-    ON CONFLICT ON CONSTRAINT uq_notification_queue_dedup DO NOTHING
-""")
-
-_WELCOME_MARK_SENT_SQL = text("""
-    UPDATE notification_queue
-    SET    status = 'sent', sent_at = NOW()
-    WHERE  subscription_id = :subscription_id
-      AND  job_offer_id = ANY(:offer_ids)
-      AND  notification_type = 'immediate'
-      AND  status = 'pending'
-""")
-
 
 @router.get("/subscribe", response_class=HTMLResponse)
 async def subscribe_page(request: Request) -> HTMLResponse:
@@ -79,16 +54,12 @@ async def subscribe(
     request: Request,
     session: DbSession,
     email: Annotated[str, Form()] = "",
-    keywords: Annotated[str, Form()] = "",
 ) -> HTMLResponse:
     """Create an unconfirmed subscription and send a confirmation email."""
-    # Normalise inputs
     email = email.strip().lower()
-    keyword_list = [kw.strip() for kw in keywords.split(",") if kw.strip()]
 
-    # Validation
-    if not email or not keyword_list:
-        error = "Por favor ingresa un email y al menos una palabra clave."
+    if not email:
+        error = "Por favor ingresa un email."
         return templates.TemplateResponse(
             request,
             "subscribe.html",
@@ -109,8 +80,6 @@ async def subscribe(
         )
 
     if existing is not None and not existing.confirmed:
-        # Regenerate token for users who lost the first confirmation email
-        existing.keywords = keyword_list
         existing.confirmation_token = uuid4()
         existing.token_expires_at = datetime.utcnow() + timedelta(hours=24)
         await session.commit()
@@ -118,7 +87,6 @@ async def subscribe(
     else:
         subscription = Subscription(
             email=email,
-            keywords=keyword_list,
             confirmed=False,
             confirmation_token=uuid4(),
             token_expires_at=datetime.utcnow() + timedelta(hours=24),
@@ -127,7 +95,6 @@ async def subscribe(
         session.add(subscription)
         await session.commit()
 
-    # Send confirmation email (non-fatal if SMTP is not configured)
     try:
         await send_confirmation_email(email, str(subscription.confirmation_token))
     except NotificationError as exc:
@@ -176,26 +143,14 @@ async def confirm_subscription(
     subscription.token_expires_at = None
     subscription.unsubscribe_token = uuid4()
 
-    # Capture values before commit — ORM expires attributes after session.commit()
-    sub_id: UUID = subscription.id
-    sub_email: str = subscription.email
-    sub_keywords: list[str] = list(subscription.keywords)
     unsubscribe_token: UUID = subscription.unsubscribe_token  # type: ignore[assignment]
 
     await session.commit()
 
-    # Send welcome notification with currently matching offers (non-fatal)
-    try:
-        await _send_welcome_notification(
-            session, sub_id, sub_email, sub_keywords, unsubscribe_token
-        )
-    except Exception as exc:
-        LOGGER.error("Unexpected error in welcome notification for %s: %s", sub_email, exc)
-
-    return templates.TemplateResponse(
-        request,
-        "confirm_ok.html",
-        {"success": True, "message": "Tu suscripción ha sido confirmada."},
+    # Redirect to save-token so the token is stored in localStorage
+    return RedirectResponse(
+        url=f"/save-token/{unsubscribe_token}",
+        status_code=302,
     )
 
 
@@ -234,66 +189,201 @@ async def unsubscribe(
     )
 
 
-# ── Welcome notification helper ───────────────────────────────────────────────
+# ── Welcome notification (simplified — no keyword matching) ────────────────────
 
-async def _send_welcome_notification(
-    session: AsyncSession,
-    sub_id: UUID,
-    email: str,
-    keywords: list[str],
-    unsubscribe_token: UUID,
-) -> None:
-    """Send an immediate notification with currently matching offers on confirmation.
+# No welcome notification is sent on confirmation. The user is redirected to
+# /save-token/{token} which stores their token and redirects to /follows.
 
-    Inserts notification_queue rows as 'pending', attempts the SMTP send, and
-    marks them 'sent' on success. If SMTP fails, rows stay 'pending' so the
-    daily cron retries on the next run.
+
+# ── Offer following ────────────────────────────────────────────────────────────
+
+
+@router.post("/send-follow-link", response_class=HTMLResponse)
+async def send_follow_link(
+    request: Request,
+    session: DbSession,
+    email: Annotated[str, Form()] = "",
+) -> HTMLResponse:
+    """Send a magic link with the unsubscribe token to the given email.
+
+    If the email has a confirmed subscription, sends the token link.
+    If not, returns a friendly error.
     """
-    result = await session.execute(_WELCOME_MATCH_SQL, {"keywords": keywords})
-    rows = result.fetchall()
+    email = email.strip().lower()
+    if not email:
+        return templates.TemplateResponse(
+            request,
+            "follow_link_sent.html",
+            {"error": "Por favor ingresa un email."},
+        )
 
-    if not rows:
-        LOGGER.info("No matching offers found for new subscriber %s — skipping welcome email.", email)
-        return
+    result = await session.execute(
+        select(Subscription).where(
+            Subscription.email == email,
+            Subscription.confirmed.is_(True),
+        )
+    )
+    sub = result.scalar_one_or_none()
 
-    offer_ids = [str(row.id) for row in rows]
-
-    for row in rows:
-        await session.execute(
-            _WELCOME_QUEUE_INSERT_SQL,
+    if sub is None or sub.unsubscribe_token is None:
+        return templates.TemplateResponse(
+            request,
+            "follow_link_sent.html",
             {
-                "id": str(uuid4()),
-                "subscription_id": str(sub_id),
-                "job_offer_id": str(row.id),
+                "error": "No encontramos una suscripción confirmada con ese email. "
+                "Suscríbete primero en la página de Alertas.",
             },
         )
 
-    offer_list = [
-        OfferRow(
-            title=row.title,
-            institution=row.institution,
-            region=row.region or "",
-            close_date=row.close_date,
-            url=row.url or "",
-        )
-        for row in rows
-    ]
-
     try:
-        await send_notification_email(
-            email=email,
-            offers=offer_list,
-            unsubscribe_token=str(unsubscribe_token),
-            notification_type="immediate",
+        await send_follow_link_email(
+            email=str(sub.email),
+            token=str(sub.unsubscribe_token),
         )
-        await session.execute(
-            _WELCOME_MARK_SENT_SQL,
-            {"subscription_id": str(sub_id), "offer_ids": offer_ids},
-        )
-        LOGGER.info("Sent welcome notification to %s with %d offer(s).", email, len(offer_list))
     except NotificationError as exc:
-        LOGGER.warning(
-            "Failed to send welcome notification to %s: %s — will retry on next cron run.", email, exc
-        )
+        LOGGER.error("Failed to send follow link email to %s: %s", email, exc)
 
-    await session.commit()
+    return templates.TemplateResponse(
+        request,
+        "follow_link_sent.html",
+        {"error": None},
+    )
+
+
+@router.get("/save-token/{token}", response_class=HTMLResponse)
+async def save_token_page(
+    request: Request,
+    token: str,
+    session: DbSession,
+) -> HTMLResponse:
+    """Landing page for the magic link — saves token to localStorage via JS."""
+    sub = await get_subscription_by_token(session, token)
+    if sub is None:
+        return templates.TemplateResponse(
+            request,
+            "save_token.html",
+            {"valid": False, "token": None},
+        )
+    return templates.TemplateResponse(
+        request,
+        "save_token.html",
+        {"valid": True, "token": token},
+    )
+
+
+def _require_subscription(sub: Subscription | None) -> JSONResponse | None:
+    """Return a 401 JSON response if subscription is invalid, else None."""
+    if sub is None:
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "Token inválido o suscripción no encontrada."},
+        )
+    return None
+
+
+@router.post("/offers/{offer_id}/follow")
+async def follow_offer(
+    offer_id: str,
+    session: DbSession,
+    token: str = Query(...),
+) -> JSONResponse:
+    """Follow a specific job offer."""
+    sub = await get_subscription_by_token(session, token)
+    if (err := _require_subscription(sub)) is not None:
+        return err
+
+    result = await session.execute(
+        select(OfferFollow).where(
+            OfferFollow.subscription_id == sub.id,
+            OfferFollow.job_offer_id == offer_id,
+        )
+    )
+    existing = result.scalar_one_or_none()
+    if existing is None:
+        follow = OfferFollow(
+            subscription_id=sub.id,
+            job_offer_id=offer_id,
+        )
+        session.add(follow)
+        await session.commit()
+
+    return JSONResponse(content={"followed": True})
+
+
+@router.delete("/offers/{offer_id}/follow")
+async def unfollow_offer(
+    offer_id: str,
+    session: DbSession,
+    token: str = Query(...),
+) -> JSONResponse:
+    """Unfollow a specific job offer (idempotent)."""
+    sub = await get_subscription_by_token(session, token)
+    if (err := _require_subscription(sub)) is not None:
+        return err
+
+    result = await session.execute(
+        select(OfferFollow).where(
+            OfferFollow.subscription_id == sub.id,
+            OfferFollow.job_offer_id == offer_id,
+        )
+    )
+    follow = result.scalar_one_or_none()
+    if follow is not None:
+        await session.delete(follow)
+        await session.commit()
+
+    return JSONResponse(content={"followed": False})
+
+
+@router.get("/offers/follows", response_class=JSONResponse)
+async def followed_offers_json(
+    session: DbSession,
+    token: str = Query(...),
+) -> JSONResponse:
+    """Return followed offers as JSON for HTMX."""
+    sub = await get_subscription_by_token(session, token)
+    if (err := _require_subscription(sub)) is not None:
+        return err
+    offers = await get_followed_offers(session, sub.id)
+    return JSONResponse(
+        content={
+            "offers": [
+                {
+                    "id": str(o.id),
+                    "title": o.title,
+                    "institution": o.institution,
+                    "state": o.state,
+                    "close_date": str(o.close_date) if o.close_date else None,
+                    "url": o.url,
+                }
+                for o in offers
+            ]
+        }
+    )
+
+
+@router.get("/follows", response_class=HTMLResponse)
+async def follows_dashboard(
+    request: Request,
+    session: DbSession,
+    token: str = Query(...),
+) -> HTMLResponse:
+    """Full dashboard page showing all followed offers."""
+    sub = await get_subscription_by_token(session, token)
+    if sub is None:
+        return templates.TemplateResponse(
+            request,
+            "follows.html",
+            {"valid_token": False, "offers": []},
+        )
+    offers = await get_followed_offers(session, sub.id)
+    return templates.TemplateResponse(
+        request,
+        "follows.html",
+        {
+            "valid_token": True,
+            "offers": offers,
+            "token": token,
+            "email": sub.email,
+        },
+    )

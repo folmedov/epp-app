@@ -101,3 +101,21 @@
 
 ### 🔍 Sprint 7: Data Quality & Lifecycle
 - [x] **7.1 Offer lifecycle flag (`is_active`)**: Add a boolean `is_active` column to `job_offers` (default `True`). A new script `scripts/close_stale_offers.py` sets `is_active = False` for offers in `postulacion` or `evaluacion` whose `close_date` is in the past and that no longer appear in any active TEEE or EEPP feed. The script is called at the end of every daily ingestion run (`scripts/ingest_all.py`). The `state` column is **never modified** — it preserves the portal-reported value. The web UI default query applies two conditions: `is_active = True` AND (`close_date IS NULL OR close_date >= CURRENT_DATE`). A filter toggle "Vencidas" passes `include_inactive=true` to the API, removing both conditions and showing all rows. **Design note:** TEEE keeps offers in its active index even after `close_date` elapses, so `close_stale_offers.py` currently closes 0 offers per run. The `close_date`-based filter in the query layer is the primary mechanism that hides stale offers; `is_active` is preserved as a pipeline-managed override for future use (e.g., manually deactivating specific offers). (details: docs/sprints/sprint_7_1_is_active_lifecycle.md)
+
+### 👤 Sprint 8: Offer Following & Token-based Dashboard
+- [x] **8.1 Offer following**: Allow users to follow/unfollow specific job offers using the existing `unsubscribe_token` as auth (stored in localStorage). New table `offer_follows`, API endpoints for follow/unfollow/list, follow button per offer row, dashboard page at `/follows`, and a new script `scripts/notify_followed_offers.py` to notify subscribers when a followed offer changes state. (details: docs/sprints/sprint_8_1_offer_following.md)
+- [x] **8.2 Simplify subscription model**: Remove keyword-based matching (notify_new_offers, weekly_digest, matcher.py, cleanup_notification_queue.py). Subscription is now only used to follow individual offers. Subscribe form simplified (email only). Confirmation flow redirects to /save-token to store token in localStorage. Migration 0014 drops `keywords` from `subscriptions` and `notified_at` from `job_offers`. Notification system reduced to state-change emails only.
+
+### Current System State
+
+After Sprint 8.2, the subscription and notification system works as follows:
+
+**Subscription** is email-only (no keywords). The `subscriptions` table stores: `email`, `confirmed`, `confirmation_token`, `unsubscribe_token`. The `keywords` column was removed. Confirmation is double opt-in with 24h expiry.
+
+**Offer following** is the core mechanic. A user subscribes with their email, clicks the confirmation link, which redirects to `/save-token/{unsubscribe_token}` (stores token in localStorage), then to `/follows?token=...`. Once authenticated via token, users can follow/unfollow individual offers. The follow button appears on each offer row (3 states: no token → link to subscribe, token + not followed → "Seguir", token + followed → "Siguiendo").
+
+**Dashboard** at `/follows` shows all followed offers with their current state. An unauthenticated user sees a form to receive a magic link via email. The "Seguimientos" link in the navbar is only visible when a token is present in localStorage.
+
+**Notifications** are state-change-only. After each ingestion run, `scripts/notify_followed_offers.py` compares each followed offer's current `state` against `offer_follows.last_state`. When a change is detected, an email is sent to the subscriber with the old and new state. The pipeline runs: `ingest_all.py` → `close_stale_offers.py` → `notify_followed_offers.py`. Three email templates exist: `state_change_email`, `follow_link_email` (magic link), and `confirmation_email` (double opt-in).
+
+**Deleted files**: `scripts/notify_new_offers.py`, `scripts/weekly_digest.py`, `scripts/cleanup_notification_queue.py`, `src/notifications/matcher.py`, `notification_immediate.{html,txt}`, `notification_digest.{html,txt}`. The `notification_queue` table is preserved but emptied. The `send_notification_email` function was removed from `email.py`.

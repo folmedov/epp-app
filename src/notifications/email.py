@@ -2,7 +2,8 @@
 
 Public interface:
 - send_confirmation_email(email, token) — double opt-in confirmation
-- send_notification_email(email, offers, unsubscribe_token, notification_type) — offer alerts
+- send_state_change_email(...) — state-change alert for followed offers
+- send_follow_link_email(email, token) — magic link with unsubscribe token
 """
 
 from __future__ import annotations
@@ -11,7 +12,7 @@ import logging
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
 import aiosmtplib
 from jinja2 import Environment, FileSystemLoader
@@ -143,61 +144,6 @@ async def send_confirmation_email(email: str, token: str) -> None:
     LOGGER.info("Confirmation email sent to %s", email)
 
 
-async def send_notification_email(
-    email: str,
-    offers: list[OfferRow],
-    unsubscribe_token: str,
-    notification_type: Literal["immediate", "digest"],
-) -> None:
-    """Send an offer notification email (immediate or digest).
-
-    Args:
-        email: Recipient email address.
-        offers: List of OfferRow instances to include.
-        unsubscribe_token: Unsubscribe token (UUID string).
-        notification_type: 'immediate' (single offer) or 'digest' (weekly batch).
-
-    Raises:
-        NotificationError: If SMTP is not configured or the send fails.
-    """
-    _check_smtp_config()
-
-    unsubscribe_url = f"{settings.APP_BASE_URL}/unsubscribe/{unsubscribe_token}"
-    context = {
-        "offers": offers,
-        "unsubscribe_url": unsubscribe_url,
-        "base_url": settings.APP_BASE_URL,
-    }
-
-    if notification_type == "immediate":
-        template_html = "notification_immediate.html"
-        template_txt = "notification_immediate.txt"
-        subject = f"Nueva oferta publicada — {offers[0].title}" if offers else "Nueva oferta publicada"
-    else:
-        template_html = "notification_digest.html"
-        template_txt = "notification_digest.txt"
-        subject = f"Resumen semanal — {len(offers)} oferta{'s' if len(offers) != 1 else ''} nueva{'s' if len(offers) != 1 else ''}"
-
-    html_body = _render_template(template_html, context)
-    plain_body = _render_template(template_txt, context)
-
-    msg = _build_message(
-        to_email=email,
-        subject=subject,
-        html_body=html_body,
-        plain_body=plain_body,
-    )
-
-    LOGGER.info(
-        "Sending %s notification to %s (%d offer(s))",
-        notification_type,
-        email,
-        len(offers),
-    )
-    await _send(msg)
-    LOGGER.info("Notification email sent to %s", email)
-
-
 def check_smtp_config() -> None:
     """Public wrapper for SMTP config validation.
 
@@ -207,10 +153,91 @@ def check_smtp_config() -> None:
     _check_smtp_config()
 
 
+async def send_state_change_email(
+    email: str,
+    offer: OfferRow,
+    unsubscribe_token: str,
+    old_state: str,
+    new_state: str,
+) -> None:
+    """Send a state-change notification for a followed offer.
+
+    Args:
+        email: Recipient email address.
+        offer: The followed offer.
+        unsubscribe_token: Unsubscribe token (UUID string).
+        old_state: Previous state.
+        new_state: Current (new) state.
+
+    Raises:
+        NotificationError: If SMTP is not configured or the send fails.
+    """
+    _check_smtp_config()
+
+    unsubscribe_url = f"{settings.APP_BASE_URL}/unsubscribe/{unsubscribe_token}"
+    follows_url = f"{settings.APP_BASE_URL}/follows?token={unsubscribe_token}"
+    context = {
+        "offer": offer,
+        "old_state": old_state,
+        "new_state": new_state,
+        "unsubscribe_url": unsubscribe_url,
+        "follows_url": follows_url,
+        "base_url": settings.APP_BASE_URL,
+    }
+
+    html_body = _render_template("state_change_email.html", context)
+    plain_body = _render_template("state_change_email.txt", context)
+
+    msg = _build_message(
+        to_email=email,
+        subject=f"Estado actualizado: {offer.title} ahora está «{new_state}»",
+        html_body=html_body,
+        plain_body=plain_body,
+    )
+
+    LOGGER.info("Sending state-change email to %s for '%s'", email, offer.title)
+    await _send(msg)
+    LOGGER.info("State-change email sent to %s", email)
+
+
+async def send_follow_link_email(email: str, token: str) -> None:
+    """Send an email with a magic link to save the unsubscribe token.
+
+    Args:
+        email: Recipient email address.
+        token: Unsubscribe token (UUID string).
+
+    Raises:
+        NotificationError: If SMTP is not configured or the send fails.
+    """
+    _check_smtp_config()
+
+    save_url = f"{settings.APP_BASE_URL}/save-token/{token}"
+    context = {
+        "save_url": save_url,
+        "base_url": settings.APP_BASE_URL,
+    }
+
+    html_body = _render_template("follow_link_email.html", context)
+    plain_body = _render_template("follow_link_email.txt", context)
+
+    msg = _build_message(
+        to_email=email,
+        subject="Accede a tus ofertas seguidas — Job Tracker",
+        html_body=html_body,
+        plain_body=plain_body,
+    )
+
+    LOGGER.info("Sending follow link email to %s", email)
+    await _send(msg)
+    LOGGER.info("Follow link email sent to %s", email)
+
+
 __all__ = [
     "NotificationError",
     "OfferRow",
     "check_smtp_config",
     "send_confirmation_email",
-    "send_notification_email",
+    "send_follow_link_email",
+    "send_state_change_email",
 ]

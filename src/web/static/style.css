@@ -565,6 +565,42 @@ th.th-sort.sort-desc .sort-icon { opacity: 1; color: var(--primary); }
   table { font-size: 0.82rem; }
 }
 
+/* ===================================================================
+   Follow button
+   =================================================================== */
+.btn-follow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.3rem 0.6rem;
+  border-radius: 99px;
+  border: 1.5px solid var(--border);
+  background: var(--surface);
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+.btn-follow:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: var(--primary-subtle);
+}
+.btn-follow--active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+.btn-follow--active:hover {
+  background: var(--primary-dark);
+  border-color: var(--primary-dark);
+  color: #fff;
+}
+.btn-follow:focus { outline: none; box-shadow: 0 0 0 3px var(--focus-ring); }
+.follow-cell { text-align: center; white-space: nowrap; }
+
 @media (max-width: 600px) {
   .app-shell { padding: 0.75rem; }
   .topbar-inner {

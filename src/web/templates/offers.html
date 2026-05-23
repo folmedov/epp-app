@@ -34,6 +34,7 @@
     {# Hidden sort/sort_dir — updated by sortable column header clicks #}
     <input type="hidden" id="sort" name="sort" value="{{ sort or 'close_date' }}" />
     <input type="hidden" id="sort_dir" name="sort_dir" value="{{ sort_dir or 'asc' }}" />
+    <input type="hidden" id="token" name="token" value="" />
 
     <div class="filter-bar-inner">
         <div class="filter-group">
@@ -118,19 +119,22 @@
 </main>
 
 <script>
-// Serialize the filter form + topbar search into a query-string and fire an
-// HTMX GET against /offers/partial.  Using a full URL sidesteps the
-// htmx.ajax({ include }) limitation where the CSS-selector include option is
-// only reliably handled by declarative hx-include attributes.
-function _buildPartialUrl() {
-    var form   = document.getElementById('filter-form');
-    var params = new URLSearchParams(new FormData(form));
-    var qInput = document.getElementById('q');
-    if (qInput) { params.delete('q'); params.set('q', qInput.value); }
-    // Checkbox: if not present in FormData (unchecked) ensure param is omitted
-    // FastAPI treats absence of include_inactive as false; no need to set it explicitly.
-    return '/offers/partial?' + params.toString();
-}
+    // Serialize the filter form + topbar search into a query-string and fire an
+    // HTMX GET against /offers/partial.  Using a full URL sidesteps the
+    // htmx.ajax({ include }) limitation where the CSS-selector include option is
+    // only reliably handled by declarative hx-include attributes.
+    function _buildPartialUrl() {
+        var form   = document.getElementById('filter-form');
+        var params = new URLSearchParams(new FormData(form));
+        var qInput = document.getElementById('q');
+        if (qInput) { params.delete('q'); params.set('q', qInput.value); }
+        // Include the unsubscribe_token for follow button state
+        var tok = localStorage.getItem('unsubscribe_token');
+        if (tok) { params.set('token', tok); }
+        // Checkbox: if not present in FormData (unchecked) ensure param is omitted
+        // FastAPI treats absence of include_inactive as false; no need to set it explicitly.
+        return '/offers/partial?' + params.toString();
+    }
 
 function setSortFromHeader(col) {
     var sortInput = document.getElementById('sort');
@@ -162,8 +166,12 @@ function clearFilters() {
     htmx.ajax('GET', _buildPartialUrl(), { target: '#results', pushUrl: true });
 }
 
-// Pre-select postulacion + evaluacion on first load if no state in URL
+// Populate the hidden token field from localStorage on every load
 document.addEventListener('DOMContentLoaded', function () {
+    var tokenInput = document.getElementById('token');
+    if (tokenInput) {
+        tokenInput.value = localStorage.getItem('unsubscribe_token') || '';
+    }
     var params = new URLSearchParams(window.location.search);
     if (!params.has('state')) {
         var anyChecked = false;

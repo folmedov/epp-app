@@ -6,6 +6,35 @@
     <title>{% block title %}Job Tracker{% endblock %}</title>
     <link rel="stylesheet" href="{{ request.url_for('static', path='style.css') }}" />
     <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+    <script>
+    // ── Offer following: token from localStorage ───────────────────────────
+    // The unsubscribe_token is saved to localStorage when the user clicks a
+    // magic link (/save-token/{token}).  All follow/unfollow HTMX requests
+    // read it from here and append ?token= to the URL.
+    function getToken() {
+      return localStorage.getItem('unsubscribe_token') || '';
+    }
+
+    function toggleFollow(btn) {
+      var offerId = btn.getAttribute('data-offer-id');
+      var token   = getToken();
+      var isFollowing = btn.classList.contains('btn-follow--active');
+      var method  = isFollowing ? 'DELETE' : 'POST';
+
+      fetch('/offers/' + offerId + '/follow?token=' + token, { method: method })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (data.followed) {
+            btn.classList.add('btn-follow--active');
+            btn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg> Siguiendo';
+          } else {
+            btn.classList.remove('btn-follow--active');
+            btn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg> Seguir';
+          }
+        });
+    }
+
+    </script>
 </head>
 <body>
     <header class="topbar" role="banner">
@@ -20,13 +49,28 @@
                 Job Tracker
             </a>
             {% block topbar_search %}{% endblock %}
-            <a class="topbar-nav-link" href="/subscribe" aria-label="Configurar alertas de email">
-                Alertas
+            <a class="topbar-nav-link" href="/subscribe" aria-label="Suscribirme para seguir ofertas">
+                Suscribirme
             </a>
+            <span id="follows-link" style="display:none;">
+            <a class="topbar-nav-link" href="/follows?token="
+                onclick="event.preventDefault(); var t = localStorage.getItem('unsubscribe_token'); if (t) { window.location.href = '/follows?token=' + t; }"
+                aria-label="Mis ofertas seguidas">
+                Seguimientos
+            </a>
+            </span>
         </div>
     </header>
     <div class="app-shell">
         {% block content %}{% endblock %}
     </div>
+    <script>
+    // Show "Seguimientos" link once the DOM is ready
+    var _tok = localStorage.getItem('unsubscribe_token');
+    if (_tok) {
+        var _el = document.getElementById('follows-link');
+        if (_el) _el.style.display = '';
+    }
+    </script>
 </body>
 </html>

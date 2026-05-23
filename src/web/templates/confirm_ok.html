@@ -1,19 +1,12 @@
 {% extends "base.html" %}
-{% block title %}{% if success %}Suscripción confirmada{% else %}Enlace no válido{% endif %} — Job Tracker{% endblock %}
+{% block title %}Enlace no válido — Job Tracker{% endblock %}
 
 {% block content %}
 <div class="page-content">
   <div class="card subscribe-card">
-    {% if success %}
-      <h1>¡Suscripción confirmada!</h1>
-      <p>{{ message }}</p>
-      <p>A partir de ahora recibirás alertas cuando se publiquen ofertas que coincidan con tus palabras clave.</p>
-      <p style="margin-top: 24px;"><a href="/">Ver ofertas disponibles</a></p>
-    {% else %}
-      <h1>Enlace no válido</h1>
-      <p>{{ message }}</p>
-      <p style="margin-top: 24px;"><a href="/subscribe">Solicitar un nuevo enlace de confirmación</a></p>
-    {% endif %}
+    <h1>Enlace no válido</h1>
+    <p>{{ message }}</p>
+    <p style="margin-top: 24px;"><a href="/subscribe">Solicitar un nuevo enlace de confirmación</a></p>
   </div>
 </div>
 {% endblock %}

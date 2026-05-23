@@ -13,40 +13,43 @@ job_tracker/
 │   │   └── schemas.py           # Data validation (Pydantic v2 Models)
 │   ├── database/
 │   │   ├── session.py           # Async SQLAlchemy engine & session setup
-│   │   └── models.py            # SQLAlchemy 2.0 ORM Table definitions
+│   │   ├── models.py            # SQLAlchemy 2.0 ORM Table definitions
+│   │   └── repository.py        # Upsert logic for job_offers and sources
 │   ├── ingestion/
 │   │   ├── base.py              # Abstract Base Class for API clients
 │   │   ├── eepp_client.py       # Scraper/Client for Empleos Públicos
 │   │   └── teee_client.py       # Scraper/Client for Trabaja en el Estado
 │   ├── notifications/
 │   │   ├── email.py             # Async SMTP sender (aiosmtplib)
-│   │   ├── matcher.py           # DB-level keyword match against offer titles
 │   │   └── templates/           # Jinja2 email templates (HTML + plain-text)
+│   │       ├── confirm_email.{html,txt}
+│   │       ├── follow_link_email.{html,txt}
+│   │       └── state_change_email.{html,txt}
 │   ├── processing/
 │   │   └── transformers.py      # Fingerprinting (MD5) and cleaning logic
 │   ├── web/
 │   │   ├── app.py               # FastAPI application factory
 │   │   ├── routers/
 │   │   │   ├── offers.py        # Routes: list, filter
-│   │   │   └── subscriptions.py # Routes: subscribe, confirm, unsubscribe
-│   │   ├── queries.py           # Async DB query functions (filter by region/city/institution)
+│   │   │   └── subscriptions.py # Routes: subscribe, confirm, follow/unfollow, dashboard
+│   │   ├── queries.py           # Async DB query functions (filtering, follow queries)
 │   │   ├── templates/
-│   │   │   ├── base.html        # Base layout
+│   │   │   ├── base.html        # Base layout with Seguimientos link
 │   │   │   ├── offers.html      # Offers list page (full page)
-│   │   │   ├── subscribe.html   # Subscription form
+│   │   │   ├── subscribe.html   # Email-only subscription form
 │   │   │   ├── confirm_ok.html  # Confirmation success page
 │   │   │   ├── unsubscribe_ok.html  # Unsubscribe success page
+│   │   │   ├── follows.html     # Followed offers dashboard
+│   │   │   ├── save_token.html  # Stores token in localStorage, redirects to /follows
 │   │   │   └── partials/
-│   │   │       └── offers_table.html  # HTMX partial (re-rendered on filter)
+│   │   │       └── offers_table.html  # HTMX partial with follow button per row
 │   │   └── static/
 │   │       └── style.css        # Minimal custom styles
-│   └── main.py                  # Entry point (Orchestrator)
+│   └── __init__.py
 ├── scripts/
 │   ├── ingest_all.py            # Unified ingestion entrypoint
 │   ├── close_stale_offers.py    # Marks stale offers as inactive
-│   ├── notify_new_offers.py     # Immediate notifications after each ingestion run
-│   ├── weekly_digest.py         # Weekly digest email (cron)
-│   └── cleanup_subscriptions.py # Purges expired unconfirmed subscriptions (cron)
+│   └── notify_followed_offers.py# Sends state-change emails for followed offers
 ├── requirement.md               # Business logic and functional specs
 ├── architecture.md              # This file
 ├── docker-compose.yml           # Infrastructure as code
@@ -150,6 +153,20 @@ Indexes & constraints:
 - Index on `job_offer_id` to efficiently lookup all source rows for a canonical offer.
 - Optional GIN index on `raw_data` for JSONB search when required.
 
+### Offer follows table (`offer_follows`)
+
+Tracks which offers a user is following for state-change notifications.
+
+| Column | Type | Description |
+|:---|:---|:---|
+| id | UUID | Primary Key |
+| subscription_id | UUID | FK → `subscriptions.id` (CASCADE delete) |
+| job_offer_id | UUID | FK → `job_offers.id` (CASCADE delete) |
+| last_state | String(32) | Last known state (used by `notify_followed_offers.py` to detect changes) |
+| created_at | Timestamp | When the follow was created |
+
+Unique constraint on `(subscription_id, job_offer_id)` — a user can follow an offer only once.
+
 ## Migration and operational notes
 
 - Backfill approach: run `scripts/migrate_raw_to_sources.py` which inserts existing `job_offers.raw_data` into `job_offer_sources` in batches, validates counts and samples, then optionally drops/renames the `raw_data` column on `job_offers` once verified.
@@ -176,7 +193,19 @@ Two public functions manage persistence:
 **Filter behavior**:
 - Filters (`region`, `city`, `institution`) are optional query params on `GET /offers/partial`.
 - Dropdown values are populated from `SELECT DISTINCT` queries on the `job_offers` table.
-- No authentication required — read-only public interface.
+- The offers list is read-only public access.
+
+**Offer following**:
+- Users subscribe with email (double opt-in), then use their `unsubscribe_token` (stored in `localStorage`) to authenticate.
+- `POST /follows/{offer_id}` and `DELETE /follows/{offer_id}` toggle follow state.
+- `GET /follows` renders a dashboard of followed offers with current state.
+- The `unsubscribe_token` is passed as a query param (`?token=...`) on requests.
+- Follow button state (followed/unfollowed) is rendered server-side via a `followed_ids` set computed from the token.
+
+**Token flow**:
+1. Subscribe → confirm email → `/save-token/{unsubscribe_token}` stores token in `localStorage`
+2. For unauthenticated users on `/follows`, a magic link form sends the token via email
+3. The `/save-token/{token}` endpoint saves the token and redirects to `/follows`
 
 **Run the web server**:
 ```bash
@@ -185,41 +214,70 @@ PYTHONPATH=. uv run uvicorn src.web.app:app --reload --port 8000
 
 ## 4. Notifications
 
-The notifications system delivers email alerts to subscribers when new matching offers are found. No external broker is used — Postgres tables serve as the queue.
+The notification system sends state-change emails to users who follow individual offers. The keyword-matching system (matcher.py, notify_new_offers.py, weekly_digest.py) was removed in Sprint 8.2.
 
 ### Components
 
 | Component | Location | Responsibility |
 |---|---|---|
 | Email sender | `src/notifications/email.py` | Async SMTP via `aiosmtplib`; renders HTML + plain-text from Jinja2 templates |
-| Keyword matcher | `src/notifications/matcher.py` | DB-level `unaccent ILIKE` match of subscriber keywords against offer titles |
-| Subscription router | `src/web/routers/subscriptions.py` | `POST /subscribe`, `GET /confirm/{token}`, `GET /unsubscribe/{token}` |
-| Immediate notifier | `scripts/notify_new_offers.py` | Runs after each ingestion; queues and sends one email per subscriber per new matching offer |
-| Weekly digest | `scripts/weekly_digest.py` | Weekly cron; sends one grouped email per subscriber with matches from the past 7 days |
-| Cleanup | `scripts/cleanup_subscriptions.py` | Daily cron; purges unconfirmed subscriptions with expired tokens |
+| Subscription router | `src/web/routers/subscriptions.py` | `POST /subscribe`, `GET /confirm/{token}`, `GET /unsubscribe/{token}`, follow/unfollow endpoints, `/follows` dashboard, magic link |
+| State-change notifier | `scripts/notify_followed_offers.py` | Runs after each ingestion; detects state changes on followed offers and sends emails |
 
-### Subscription lifecycle
+### Email templates
+
+| Template | Purpose |
+|---|---|
+| `confirm_email.{html,txt}` | Double opt-in confirmation (sent during subscribe) |
+| `follow_link_email.{html,txt}` | Magic link to access the dashboard without localStorage |
+| `state_change_email.{html,txt}` | Notification when a followed offer changes state (old → new) |
+
+### Subscription & follow lifecycle
 
 ```
 POST /subscribe
   → create unconfirmed row (confirmed=False, confirmation_token, token_expires_at=+24h)
-  → send confirmation email
+  → send confirmation email (confirm_email template)
 
 GET /confirm/{token}
   → validate token & expiry
   → set confirmed=True, generate unsubscribe_token
+  → redirect to /save-token/{unsubscribe_token}
+
+GET /save-token/{token}
+  → stores token in localStorage via JavaScript
+  → redirects to /follows?token=...
+
+GET /follows
+  → if token present: show dashboard of followed offers with current state
+  → if no token: show magic link form
+
+POST /follows/{offer_id}          (with ?token=...)
+  → insert row into offer_follows with last_state = current state
+
+DELETE /follows/{offer_id}         (with ?token=...)
+  → delete row from offer_follows
 
 GET /unsubscribe/{token}
-  → delete subscription row (cascades to notification_queue)
+  → delete subscription row (cascades to offer_follows)
 ```
 
-### Notification delivery
+### Notification delivery (state changes)
 
-- `notify_new_offers.py` queries `job_offers WHERE notified_at IS NULL` after each ingestion run.
-- For each confirmed subscription, matching offers are inserted as `pending` rows in `notification_queue` with `notification_type='immediate'`.
-- `notified_at` is set on all processed offers after the queue is populated (idempotency marker).
-- The weekly digest uses the same queue table with `notification_type='digest'`.
-- Failed sends (`attempts >= 3`) are not automatically retried — logged for manual review.
+The pipeline runs sequentially after ingestion:
+
+```
+ingest_all.py → close_stale_offers.py → notify_followed_offers.py
+```
+
+`notify_followed_offers.py` flow:
+1. Query all `offer_follows` rows joined with `job_offers`.
+2. For each row where `job_offers.state != offer_follows.last_state`:
+   a. Generate a state-change email using the `state_change_email` template.
+   b. Send via `aiosmtplib` (non-fatal on failure).
+   c. Update `offer_follows.last_state` to the current state.
+
+No notification queue is used — emails are sent synchronously per change. The subscription's `unsubscribe_token` is included in the email for one-click unsubscribe.
 
 ### Configuration (env vars)
 
@@ -230,4 +288,4 @@ GET /unsubscribe/{token}
 | `SMTP_USER` | Yes (for email) | — | SMTP username |
 | `SMTP_PASSWORD` | Yes (for email) | — | SMTP password |
 | `SMTP_FROM` | Yes (for email) | — | Sender address (e.g. `Job Tracker <noreply@example.com>`) |
-| `APP_BASE_URL` | No | `http://localhost:8000` | Base URL for confirm/unsubscribe links in emails |
+| `APP_BASE_URL` | No | `http://localhost:8000` | Base URL for confirm/follow links in emails |

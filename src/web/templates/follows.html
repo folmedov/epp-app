@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+
+{% block title %}Mis ofertas seguidas — Job Tracker{% endblock %}
+
+{% block content %}
+<main class="main-panel">
+  <div class="panel-header">
+    <h2>Mis ofertas seguidas</h2>
+    {% if email %}
+    <span class="results-count">{{ email }}</span>
+    {% endif %}
+  </div>
+
+  {% if not valid_token %}
+  <div class="table-card">
+    <div class="empty-state" role="alert">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+      </svg>
+      <p>Token inválido o no proporcionado.</p>
+      <p style="font-size: 14px; color: #666;">
+        Ingresa tu email para recibir un enlace mágico:
+      </p>
+      <form id="magic-link-form" onsubmit="return sendMagicLink()" style="margin-top: 16px; display: flex; gap: 8px; justify-content: center;">
+        <input type="email" id="magic-email" placeholder="tu@email.com" required
+          style="padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 0.9rem;" />
+        <button type="submit" class="btn btn-primary" style="padding: 8px 16px;">Enviar enlace</button>
+      </form>
+      <p id="magic-msg" style="font-size: 13px; color: #666; margin-top: 8px;"></p>
+      <p style="margin-top: 16px;"><a href="/subscribe" class="topbar-nav-link">¿No tienes cuenta? Suscríbete aquí</a></p>
+      <script>
+      function sendMagicLink() {
+        var email = document.getElementById('magic-email').value;
+        if (!email) return false;
+        var form = new FormData();
+        form.append('email', email);
+        var msg = document.getElementById('magic-msg');
+        msg.textContent = 'Enviando...';
+        fetch('/send-follow-link', { method: 'POST', body: form })
+          .then(function(r) { return r.text(); })
+          .then(function() {
+            msg.textContent = 'Revisa tu bandeja de entrada.';
+          });
+        return false;
+      }
+      </script>
+    </div>
+  </div>
+
+  {% elif not offers %}
+  <div class="table-card">
+    <div class="empty-state" role="status">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        <line x1="8" y1="11" x2="14" y2="11"/>
+      </svg>
+      <p>No estás siguiendo ninguna oferta.</p>
+      <p style="font-size: 14px; color: #666;">
+        Desde la lista de ofertas puedes hacer clic en "Seguir" para empezar a recibir notificaciones de cambios de estado.
+      </p>
+      <a href="/" class="topbar-nav-link">Ver ofertas</a>
+    </div>
+  </div>
+
+  {% else %}
+  <div class="table-card">
+    <div class="table-scroll">
+      <table role="table" aria-label="Mis ofertas seguidas">
+        <thead>
+          <tr>
+            <th scope="col">Cargo</th>
+            <th scope="col">Institución</th>
+            <th scope="col">Estado</th>
+            <th scope="col">Cierre</th>
+            <th scope="col">Enlace</th>
+            <th scope="col">Acción</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for offer in offers %}
+          {% set sl = offer.state | lower %}
+          {% if 'postulaci' in sl or 'publicad' in sl or 'abiert' in sl %}
+            {% set badge_class = 'badge-green' %}
+          {% elif 'cerrad' in sl or 'desiert' in sl or 'suspendid' in sl or 'finaliz' in sl %}
+            {% set badge_class = 'badge-red' %}
+          {% elif 'proceso' in sl or 'evaluaci' in sl %}
+            {% set badge_class = 'badge-orange' %}
+          {% else %}
+            {% set badge_class = 'badge-gray' %}
+          {% endif %}
+          <tr>
+            <td class="col-title">{{ offer.title }}</td>
+            <td>{{ offer.institution }}</td>
+            <td><span class="badge {{ badge_class }}">{{ offer.state }}</span></td>
+            <td>{{ offer.close_date | fmt_date_only }}</td>
+            <td class="link-cell">
+              {% if offer.url %}
+              <a href="{{ offer.url }}" target="_blank" rel="noopener noreferrer">Ver</a>
+              {% else %}—{% endif %}
+            </td>
+            <td>
+              <button class="btn-follow" data-offer-id="{{ offer.id }}"
+                onclick="unfollowOffer(this)"
+                aria-label="Dejar de seguir esta oferta">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+                Siguiendo
+              </button>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+</main>
+
+{% if valid_token %}
+<script>
+var TOKEN = '{{ token }}';
+
+function unfollowOffer(btn) {
+  var offerId = btn.getAttribute('data-offer-id');
+  fetch('/offers/' + offerId + '/follow?token=' + TOKEN, { method: 'DELETE' })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.followed === false) {
+        var row = btn.closest('tr');
+        if (row) { row.style.opacity = '0.4'; }
+        btn.disabled = true;
+        btn.textContent = '✓ Dejaste de seguir';
+      }
+    });
+}
+</script>
+{% endif %}
+{% endblock %}

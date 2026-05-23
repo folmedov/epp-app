@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="UTF-8"><title>Estado actualizado</title></head>
+<body style="font-family: sans-serif; padding: 20px;">
+  <h2>Cambio de estado en oferta seguida</h2>
+  <p><strong>{{ offer.title }}</strong> — {{ offer.institution }}</p>
+  <p>Estado anterior: <strong>{{ old_state }}</strong></p>
+  <p>Estado actual:   <strong>{{ new_state }}</strong></p>
+  {% if offer.close_date %}
+  <p>Fecha de cierre: {{ offer.close_date }}</p>
+  {% endif %}
+  {% if offer.url %}
+  <p><a href="{{ offer.url }}">Ver oferta en portal</a></p>
+  {% endif %}
+  <p><a href="{{ follows_url }}">Ver todas tus ofertas seguidas</a></p>
+  <hr>
+  <p style="color: #999; font-size: 12px;">
+    <a href="{{ unsubscribe_url }}">Cancelar suscripción</a> —
+    Job Tracker, {{ base_url }}
+  </p>
+</body>
+</html>

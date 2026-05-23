@@ -45,6 +45,7 @@
                     Cierre <span class="sort-icon" aria-hidden="true">{% if _s == 'close_date' %}{% if _d == 'asc' %}↑{% else %}↓{% endif %}{% else %}⇅{% endif %}</span>
                 </th>
                 <th scope="col">Enlace</th>
+                <th scope="col">Seguir</th>
             </tr>
         </thead>
         <tbody>
@@ -78,6 +79,33 @@
                         </svg>
                     </a>
                     {% else %}—{% endif %}
+                </td>
+                <td class="follow-cell">
+                    {% if token %}
+                        {% if offer.is_followed %}
+                        <button class="btn-follow btn-follow--active"
+                            data-offer-id="{{ offer.id }}"
+                            onclick="toggleFollow(this)"
+                            aria-label="Dejar de seguir esta oferta">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+                            Siguiendo
+                        </button>
+                        {% else %}
+                        <button class="btn-follow"
+                            data-offer-id="{{ offer.id }}"
+                            onclick="toggleFollow(this)"
+                            aria-label="Seguir esta oferta">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+                            Seguir
+                        </button>
+                        {% endif %}
+                    {% else %}
+                        <a href="/subscribe" class="btn-follow"
+                            aria-label="Suscribirme para seguir ofertas">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+                            Seguir
+                        </a>
+                    {% endif %}
                 </td>
             </tr>
             {% endfor %}

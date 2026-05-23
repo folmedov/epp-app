@@ -1,0 +1,11 @@
+Accede a tus ofertas seguidas
+
+Haz clic en el siguiente enlace para acceder a tus ofertas seguidas:
+
+{{ save_url }}
+
+Este enlace es único y permanente. Guárdalo si quieres volver después.
+
+--
+Job Tracker
+{{ base_url }}

@@ -1,16 +1,16 @@
 {% extends "base.html" %}
-{% block title %}Alertas de empleo — Job Tracker{% endblock %}
+{% block title %}Suscribirme — Job Tracker{% endblock %}
 
 {% block content %}
 <div class="page-content">
   <div class="card subscribe-card">
     {% if submitted %}
       <h1>Revisa tu email</h1>
-      <p>Te enviamos un enlace de confirmación al correo indicado. Haz clic en él para activar tus alertas.</p>
+      <p>Te enviamos un enlace de confirmación al correo indicado. Haz clic en él para activar tu cuenta y empezar a seguir ofertas.</p>
       <p style="margin-top: 24px;"><a href="/">Ver ofertas disponibles</a></p>
     {% else %}
-      <h1>Alertas de empleo público</h1>
-      <p>Recibe un email cada vez que se publique una oferta que coincida con tus palabras clave.</p>
+      <h1>Suscribirme</h1>
+      <p>Regístrate con tu email para poder seguir ofertas y recibir notificaciones cuando cambien de estado.</p>
 
       {% if error %}
         <div class="form-error" role="alert">{{ error }}</div>
@@ -29,18 +29,7 @@
             autocomplete="email"
           />
         </div>
-        <div class="form-group">
-          <label for="sub-keywords">Palabras clave</label>
-          <input
-            type="text"
-            id="sub-keywords"
-            name="keywords"
-            required
-            placeholder="analista, informática, salud"
-          />
-          <small class="form-hint">Separa las palabras con comas. Se buscan en el título del cargo (sin distinguir mayúsculas ni tildes).</small>
-        </div>
-        <button type="submit" class="btn btn-primary">Suscribirse</button>
+        <button type="submit" class="btn btn-primary">Suscribirme</button>
       </form>
     {% endif %}
   </div>

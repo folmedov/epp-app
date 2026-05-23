@@ -12,7 +12,7 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import ARRAY, Boolean, DateTime, Integer, Numeric, String, SmallInteger, Text, func, ForeignKey, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Integer, Numeric, String, SmallInteger, func, ForeignKey, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncAttrs
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -93,7 +93,32 @@ class JobOfferSource(Base):
 	__table_args__ = (UniqueConstraint("job_offer_id", "source", name="uq_job_offer_sources_job_offer_id_source"),)
 
 
-__all__ = ["Base", "JobOffer", "JobOfferSource", "Subscription", "NotificationQueue"]
+__all__ = ["Base", "JobOffer", "JobOfferSource", "Subscription", "NotificationQueue", "OfferFollow"]
+
+
+class OfferFollow(Base):
+	"""User follow on a specific job offer for state-change notifications."""
+
+	__tablename__ = "offer_follows"
+	__table_args__ = (UniqueConstraint("subscription_id", "job_offer_id", name="uq_offer_follows"),)
+
+	id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+	subscription_id: Mapped[UUID] = mapped_column(
+		PGUUID(as_uuid=True),
+		ForeignKey("subscriptions.id", ondelete="CASCADE"),
+		nullable=False,
+		index=True,
+	)
+	job_offer_id: Mapped[UUID] = mapped_column(
+		PGUUID(as_uuid=True),
+		ForeignKey("job_offers.id", ondelete="CASCADE"),
+		nullable=False,
+		index=True,
+	)
+	last_state: Mapped[str | None] = mapped_column(String(32), nullable=True)
+	created_at: Mapped[datetime] = mapped_column(
+		DateTime(timezone=False), nullable=False, server_default=func.now()
+	)
 
 
 class Subscription(Base):
@@ -103,9 +128,6 @@ class Subscription(Base):
 
 	id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
 	email: Mapped[str] = mapped_column(String(254), nullable=False)
-	keywords: Mapped[list[str]] = mapped_column(
-		ARRAY(Text()), nullable=False, default=list, server_default="{}"
-	)
 	confirmed: Mapped[bool] = mapped_column(
 		Boolean(), nullable=False, default=False, server_default="false"
 	)
