@@ -23,15 +23,17 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database.models import OfferFollow, SearchSubscription, Subscription
+from src.database.models import JobOffer, OfferFollow, SearchSubscription, Subscription
 from src.notifications.email import NotificationError, send_follow_link_email
 from src.web.auth import get_optional_subscription
 from src.web.deps import get_db_session
 from src.web.queries import (
     get_followed_offers,
+    get_followed_offer_ids,
+    get_offers_by_terms,
 )
 from src.web.templating import templates
 
@@ -283,8 +285,9 @@ async def search_subscriptions_page(
     request: Request,
     session: DbSession,
     sub: Subscription = Depends(get_optional_subscription),
+    page: int = 1,
 ) -> HTMLResponse:
-    """Manage search subscription terms (add / remove / toggle)."""
+    """Manage search subscription terms with matching results below."""
     if sub is None:
         return templates.TemplateResponse(
             request,
@@ -293,6 +296,9 @@ async def search_subscriptions_page(
                 "valid_token": False,
                 "subscription": None,
                 "terms": [],
+                "offers": [],
+                "total": 0,
+                "term_counts": {},
                 "token": "",
             },
         )
@@ -302,7 +308,24 @@ async def search_subscriptions_page(
         .where(SearchSubscription.subscription_id == sub.id)
         .order_by(SearchSubscription.created_at.desc())
     )
-    terms = result.scalars().all()
+    terms: list[SearchSubscription] = result.scalars().all()  # type: ignore[assignment]
+
+    # Per-term result counts
+    term_counts: dict[str, int] = {}
+    for ss in terms:
+        stmt = select(func.count()).select_from(JobOffer).where(
+            func.unaccent(JobOffer.title).ilike(func.unaccent(f"%{ss.term}%")),
+            JobOffer.state == "postulacion",
+            JobOffer.is_active.is_(True),
+        )
+        cnt = await session.scalar(stmt)
+        term_counts[ss.term] = int(cnt or 0)
+
+    active_terms = [ss.term for ss in terms if ss.active]
+    followed_ids = await get_followed_offer_ids(session, sub.id)
+    offers, total = await get_offers_by_terms(
+        session, active_terms, followed_ids=followed_ids, page=page,
+    )
 
     return templates.TemplateResponse(
         request,
@@ -311,6 +334,9 @@ async def search_subscriptions_page(
             "valid_token": True,
             "subscription": sub,
             "terms": terms,
+            "offers": offers,
+            "total": total,
+            "term_counts": term_counts,
             "token": str(sub.unsubscribe_token) if sub.unsubscribe_token else "",
             "email": sub.email,
         },

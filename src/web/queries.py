@@ -214,6 +214,74 @@ async def get_followed_offers(
     return [OfferRow(*row, is_followed=True) for row in result]
 
 
+async def get_offers_by_terms(
+    session: AsyncSession,
+    terms: list[str],
+    followed_ids: set[str] | None = None,
+    page: int = 1,
+    per_page: int = 100,
+) -> tuple[list[OfferRow], int]:
+    """Return offers matching ANY of the given search terms (union).
+
+    Uses unaccent ILIKE on offer title. Only offers in 'postulacion'
+    state are returned. Followed offers are sorted first, then by
+    close_date ascending (soonest deadline first).
+    """
+    if not terms:
+        return [], 0
+
+    conditions = [
+        func.unaccent(JobOffer.title).ilike(func.unaccent(f"%{t}%"))
+        for t in terms
+    ]
+
+    # Sort: followed offers first, then soonest-close-date first
+    order: list = [asc(JobOffer.close_date).nullslast()]
+    if followed_ids:
+        followed_uuids = [UUID(fid) for fid in followed_ids]
+        order.insert(0, case((JobOffer.id.in_(followed_uuids), 0), else_=1))
+
+    stmt = select(
+        JobOffer.id,
+        JobOffer.title,
+        JobOffer.institution,
+        JobOffer.region,
+        JobOffer.city,
+        JobOffer.gross_salary,
+        JobOffer.state,
+        JobOffer.url,
+        JobOffer.start_date,
+        JobOffer.close_date,
+    ).where(
+        or_(*conditions),
+        JobOffer.state == "postulacion",
+        JobOffer.is_active.is_(True),
+    ).order_by(*order)
+
+    count_stmt = select(func.count()).select_from(JobOffer).where(
+        or_(*conditions),
+        JobOffer.state == "postulacion",
+        JobOffer.is_active.is_(True),
+    )
+    total = await session.scalar(count_stmt)
+    total = int(total or 0)
+
+    limit = min(max(1, per_page), 500)
+    offset = (max(1, page) - 1) * limit
+    stmt = stmt.limit(limit).offset(offset)
+
+    result = await session.execute(stmt)
+    rows = result.all()
+    offers = []
+    for row in rows:
+        offer = OfferRow(*row)
+        if followed_ids is not None:
+            offer.is_followed = str(offer.id) in followed_ids
+        offers.append(offer)
+
+    return offers, total
+
+
 async def get_subscription_by_token(
     session: AsyncSession,
     token: str,
