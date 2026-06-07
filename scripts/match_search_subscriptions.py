@@ -23,7 +23,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.models import JobOffer, Subscription, SearchSubscription, NotificationQueue
-from src.database.session import async_session_factory
+from src.database.session import SessionFactory
 from src.notifications.email import OfferRow, NotificationError, send_search_match_email
 
 logging.basicConfig(
@@ -160,7 +160,7 @@ async def main(dry_run: bool = False) -> int:
     if dry_run:
         LOGGER.info("DRY-RUN mode — no emails will be sent, no DB writes")
 
-    async with async_session_factory() as session:
+    async with SessionFactory() as session:
         matches = await get_pending_matches(session)
 
         if not matches:
