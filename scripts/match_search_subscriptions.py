@@ -114,7 +114,11 @@ async def _send_digest_and_enqueue(
     matches: list[dict[str, Any]],
     dry_run: bool,
 ) -> bool:
-    """Send one digest email with all matches, then enqueue queue rows.
+    """Send one digest email with all matches, then record queue rows.
+
+    Queue rows are only inserted AFTER a successful send.  If the email fails
+    or the process crashes before commit, no rows are persisted and the next
+    run will retry these matches.
 
     Returns True on success (email sent + all queue rows written).
     """
@@ -128,7 +132,6 @@ async def _send_digest_and_enqueue(
 
     # Build (OfferRow, term) list for the digest
     offer_term_pairs: list[tuple[OfferRow, str]] = []
-    queue_rows: list[NotificationQueue] = []
     for m in matches:
         offer = OfferRow(
             title=m["title"],
@@ -138,15 +141,8 @@ async def _send_digest_and_enqueue(
             url=m["url"] or "",
         )
         offer_term_pairs.append((offer, m["term"]))
-        # Enqueue each match for future dedup
-        nq = NotificationQueue(
-            subscription_id=m["subscription_id"],
-            job_offer_id=m["offer_id"],
-            notification_type="search_match",
-        )
-        session.add(nq)
-        queue_rows.append(nq)
 
+    # Send FIRST — if this fails, no queue rows to clean up.
     try:
         await send_search_match_email(
             email=email,
@@ -155,13 +151,22 @@ async def _send_digest_and_enqueue(
         )
     except NotificationError as exc:
         LOGGER.error("Failed to send digest to %s: %s", email, exc)
-        for nq in queue_rows:
-            nq.status = "failed"
         return False
 
-    for nq in queue_rows:
-        nq.status = "sent"
-        nq.sent_at = func.now()
+    # Only record queue rows after successful send.
+    seen: set[tuple[str, str]] = set()
+    for m in matches:
+        pair_key = (str(m["subscription_id"]), str(m["offer_id"]))
+        if pair_key not in seen:
+            seen.add(pair_key)
+            nq = NotificationQueue(
+                subscription_id=m["subscription_id"],
+                job_offer_id=m["offer_id"],
+                notification_type="search_match",
+                status="sent",
+                sent_at=func.now(),
+            )
+            session.add(nq)
 
     LOGGER.info("Digest sent to %s (%d match(es))", email, len(matches))
     return True
