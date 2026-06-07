@@ -1,14 +1,16 @@
-Nueva oferta para tu busqueda «{{ term }}»
-
-{{ offer.title }} — {{ offer.institution }}{% if offer.region %}
-Region: {{ offer.region }}{% endif %}{% if offer.close_date %}
-Fecha de cierre: {{ offer.close_date }}{% endif %}{% if offer.url %}
-Ver oferta en portal: {{ offer.url }}{% endif %}
-
-Administrar tus busquedas suscritas:
+{{ total }} nueva{{ 's' if total != 1 }} oferta{{ 's' if total != 1 }} en tus búsquedas
+{% for m in matches %}
+---
+Búsqueda: «{{ m.term }}»
+{{ m.offer.title }} — {{ m.offer.institution }}{% if m.offer.region %}
+Región: {{ m.offer.region }}{% endif %}{% if m.offer.close_date %}
+Cierre: {{ m.offer.close_date }}{% endif %}{% if m.offer.url %}
+Ver oferta en portal: {{ m.offer.url }}{% endif %}
+{% endfor %}
+Administrar tus búsquedas suscritas:
 {{ search_url }}
 
 --
 Job Tracker, {{ base_url }}
 
-Cancelar suscripcion: {{ unsubscribe_url }}
+Cancelar suscripción: {{ unsubscribe_url }}

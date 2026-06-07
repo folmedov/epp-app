@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+from collections import defaultdict
 from typing import Any
 
 from sqlalchemy import select, func
@@ -25,6 +26,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.database.models import JobOffer, Subscription, SearchSubscription, NotificationQueue
 from src.database.session import SessionFactory
 from src.notifications.email import OfferRow, NotificationError, send_search_match_email
+
+MAX_EMAILS_PER_USER = 20
 
 logging.basicConfig(
     level=logging.INFO,
@@ -81,6 +84,7 @@ async def get_pending_matches(
             )
             .where(
                 func.unaccent(JobOffer.title).ilike(func.unaccent(pattern)),
+                JobOffer.state == "postulacion",
                 JobOffer.is_active.is_(True),
                 ~notified_subq.exists(),
             )
@@ -103,56 +107,64 @@ async def get_pending_matches(
     return pending
 
 
-async def _enqueue_and_send(
+async def _send_digest_and_enqueue(
     session: AsyncSession,
-    match: dict[str, Any],
+    email: str,
+    unsubscribe_token: str,
+    matches: list[dict[str, Any]],
     dry_run: bool,
 ) -> bool:
-    """Insert notification_queue row and send email. Returns True on success."""
+    """Send one digest email with all matches, then enqueue queue rows.
+
+    Returns True on success (email sent + all queue rows written).
+    """
     if dry_run:
+        terms = ", ".join(m["term"] for m in matches)
         LOGGER.info(
-            "[DRY-RUN] Would notify %s about '%s' matching term '%s'",
-            match["email"], match["title"], match["term"],
+            "[DRY-RUN] Would send digest to %s (%d match(es): %s)",
+            email, len(matches), terms,
         )
         return True
 
-    # Insert queue row
-    nq = NotificationQueue(
-        subscription_id=match["subscription_id"],
-        job_offer_id=match["offer_id"],
-        notification_type="search_match",
-    )
-    session.add(nq)
-
-    offer = OfferRow(
-        title=match["title"],
-        institution=match["institution"],
-        region=match["region"] or "",
-        close_date=match["close_date"],
-        url=match["url"] or "",
-    )
+    # Build (OfferRow, term) list for the digest
+    offer_term_pairs: list[tuple[OfferRow, str]] = []
+    queue_rows: list[NotificationQueue] = []
+    for m in matches:
+        offer = OfferRow(
+            title=m["title"],
+            institution=m["institution"],
+            region=m["region"] or "",
+            close_date=m["close_date"],
+            url=m["url"] or "",
+        )
+        offer_term_pairs.append((offer, m["term"]))
+        # Enqueue each match for future dedup
+        nq = NotificationQueue(
+            subscription_id=m["subscription_id"],
+            job_offer_id=m["offer_id"],
+            notification_type="search_match",
+        )
+        session.add(nq)
+        queue_rows.append(nq)
 
     try:
         await send_search_match_email(
-            email=match["email"],
-            offer=offer,
-            term=match["term"],
-            unsubscribe_token=str(match["unsubscribe_token"]),
+            email=email,
+            matches=offer_term_pairs,
+            unsubscribe_token=str(unsubscribe_token),
         )
+    except NotificationError as exc:
+        LOGGER.error("Failed to send digest to %s: %s", email, exc)
+        for nq in queue_rows:
+            nq.status = "failed"
+        return False
+
+    for nq in queue_rows:
         nq.status = "sent"
         nq.sent_at = func.now()
-        LOGGER.info(
-            "Notified %s about '%s' matching term '%s'",
-            match["email"], match["title"], match["term"],
-        )
-        return True
-    except NotificationError as exc:
-        LOGGER.error(
-            "Failed to notify %s about '%s': %s",
-            match["email"], match["title"], exc,
-        )
-        nq.status = "failed"
-        return False
+
+    LOGGER.info("Digest sent to %s (%d match(es))", email, len(matches))
+    return True
 
 
 async def main(dry_run: bool = False) -> int:
@@ -169,9 +181,21 @@ async def main(dry_run: bool = False) -> int:
 
         LOGGER.info("Found %d pending match(es)", len(matches))
 
+        # Group by email for per-user digest
+        by_email: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for m in matches:
+            by_email[m["email"]].append(m)
+
         fail_count = 0
-        for match in matches:
-            ok = await _enqueue_and_send(session, match, dry_run)
+        for email, user_matches in by_email.items():
+            token = str(user_matches[0]["unsubscribe_token"])
+            if len(user_matches) > MAX_EMAILS_PER_USER:
+                LOGGER.warning(
+                    "Capping %d → %d matches for %s",
+                    len(user_matches), MAX_EMAILS_PER_USER, email,
+                )
+                user_matches = user_matches[:MAX_EMAILS_PER_USER]
+            ok = await _send_digest_and_enqueue(session, email, token, user_matches, dry_run)
             if not ok:
                 fail_count += 1
 
@@ -179,10 +203,16 @@ async def main(dry_run: bool = False) -> int:
             await session.commit()
 
     if fail_count:
-        LOGGER.warning("%d / %d match notification(s) failed", fail_count, len(matches))
+        LOGGER.warning(
+            "%d / %d digest(s) failed to send",
+            fail_count, len(by_email),
+        )
         return 1
 
-    LOGGER.info("All %d match notification(s) sent successfully", len(matches))
+    LOGGER.info(
+        "All %d digest(s) sent successfully (%d total match(es))",
+        len(by_email), len(matches),
+    )
     return 0
 
 

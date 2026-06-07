@@ -235,16 +235,14 @@ async def send_follow_link_email(email: str, token: str) -> None:
 
 async def send_search_match_email(
     email: str,
-    offer: OfferRow,
-    term: str,
+    matches: list[tuple[OfferRow, str]],
     unsubscribe_token: str,
 ) -> None:
-    """Send a notification about a new offer matching a subscribed search term.
+    """Send a digest notification with all offers matching subscribed terms.
 
     Args:
         email: Recipient email address.
-        offer: The matching offer.
-        term: The search term that matched.
+        matches: List of (offer, term) tuples that matched in this run.
         unsubscribe_token: Unsubscribe token (UUID string).
 
     Raises:
@@ -254,9 +252,10 @@ async def send_search_match_email(
 
     unsubscribe_url = f"{settings.APP_BASE_URL}/unsubscribe/{unsubscribe_token}"
     search_url = f"{settings.APP_BASE_URL}/search-subscriptions?token={unsubscribe_token}"
+    match_list = [{"offer": o, "term": t} for o, t in matches]
     context = {
-        "offer": offer,
-        "term": term,
+        "matches": match_list,
+        "total": len(match_list),
         "unsubscribe_url": unsubscribe_url,
         "search_url": search_url,
         "base_url": settings.APP_BASE_URL,
@@ -265,16 +264,17 @@ async def send_search_match_email(
     html_body = _render_template("search_match_email.html", context)
     plain_body = _render_template("search_match_email.txt", context)
 
+    subject = f"{len(matches)} nueva{'s' if len(matches) != 1 else ''} oferta{'s' if len(matches) != 1 else ''} en tus búsquedas"
     msg = _build_message(
         to_email=email,
-        subject=f"Nueva oferta: {offer.title} coincide con «{term}»",
+        subject=subject,
         html_body=html_body,
         plain_body=plain_body,
     )
 
-    LOGGER.info("Sending search-match email to %s for term '%s'", email, term)
+    LOGGER.info("Sending search-match digest to %s (%d match(es))", email, len(matches))
     await _send(msg)
-    LOGGER.info("Search-match email sent to %s", email)
+    LOGGER.info("Search-match digest sent to %s", email)
 
 
 __all__ = [
