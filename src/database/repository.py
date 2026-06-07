@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from uuid import UUID, uuid4
 
 from sqlalchemy import case, func, select, update
@@ -125,19 +126,19 @@ async def upsert_job_offers(
         if r.get("cross_source_key") is not None
     ]
     # fingerprint → (id, fingerprint, source, state) for already-stored rows
-    existing_by_cross_key: dict[str, tuple[UUID, str, str, str]] = {}
+    existing_by_cross_key: dict[str, tuple[UUID, str, str, str, datetime | None]] = {}
     if incoming_cross_keys:
         # Chunk the IN-list to stay under asyncpg's 32767-parameter limit.
         _CSK_CHUNK = 32767
         for _offset in range(0, len(incoming_cross_keys), _CSK_CHUNK):
             _chunk_keys = incoming_cross_keys[_offset : _offset + _CSK_CHUNK]
             lookup = await session.execute(
-                select(JobOffer.id, JobOffer.fingerprint, JobOffer.cross_source_key, JobOffer.source, JobOffer.state).where(
+                select(JobOffer.id, JobOffer.fingerprint, JobOffer.cross_source_key, JobOffer.source, JobOffer.state, JobOffer.close_date).where(
                     JobOffer.cross_source_key.in_(_chunk_keys)
                 )
             )
-            for existing_id, existing_fp, existing_csk, existing_source, existing_state in lookup:
-                existing_by_cross_key[existing_csk] = (existing_id, existing_fp, existing_source or "", existing_state or "")
+            for existing_id, existing_fp, existing_csk, existing_source, existing_state, existing_close_date in lookup:
+                existing_by_cross_key[existing_csk] = (existing_id, existing_fp, existing_source or "", existing_state or "", existing_close_date)
 
     # Partition: rows that map to an existing cross-source canonical row are
     # resolved immediately; the rest go through the normal INSERT path.
@@ -151,7 +152,8 @@ async def upsert_job_offers(
     #
     #   EEPP (authority=5) defers to TEEE for canonical fields.  It enriches the
     #   canonical row with EEPP-exclusive fields: gross_salary (COALESCE — only if
-    #   lacking), first_employment, vacancies, prioritized.
+    #   lacking), first_employment, vacancies, prioritized.  State is also updated
+    #   from EEPP when the stored close_date has passed (stale TEEE guard).
     fingerprint_to_id: dict[str, UUID] = {}
     rows_to_insert: list[dict] = []
     enrichment_updates: list[dict] = []   # EEPP-exclusive fields pushed to canonical row
@@ -159,7 +161,7 @@ async def upsert_job_offers(
     for row in rows:
         csk = row.get("cross_source_key")
         if csk and csk in existing_by_cross_key:
-            existing_id, existing_fp, existing_source, existing_state = existing_by_cross_key[csk]
+            existing_id, existing_fp, existing_source, existing_state, existing_close_date = existing_by_cross_key[csk]
             if existing_fp != row["fingerprint"]:
                 # Different source owns the canonical row — reuse it.
                 incoming_source = row.get("source", "")
@@ -202,8 +204,20 @@ async def upsert_job_offers(
                     # Lower-authority source (EEPP) enriches EEPP-exclusive fields.
                     # gross_salary: COALESCE — only fill if the canonical row has no salary.
                     # first_employment / vacancies / prioritized: always update (TEEE never has them).
+                    #
+                    # State update from EEPP: only when the stored close_date is in the
+                    # past, since TEEE may keep stale postulacion entries past the deadline.
+                    # Forward-only lifecycle prevents regressions.
+                    incoming_state = row.get("state")
+                    eepp_state = None
+                    if incoming_state and existing_close_date is not None and existing_close_date < datetime.now():
+                        incoming_pri = _STATE_PRIORITY.get(incoming_state, 0)
+                        existing_pri = _STATE_PRIORITY.get(existing_state, 0)
+                        if incoming_pri >= existing_pri:
+                            eepp_state = incoming_state
                     enrichment_updates.append({
                         "job_offer_id": existing_id,
+                        "state": eepp_state,
                         "gross_salary": row.get("gross_salary"),
                         "first_employment": row.get("first_employment"),
                         "vacancies": row.get("vacancies"),
@@ -240,19 +254,24 @@ async def upsert_job_offers(
     # gross_salary uses COALESCE so that a TEEE salary is never overwritten.
     # The three EEPP-exclusive fields are set unconditionally since TEEE never
     # provides them.
+    # state is set only when close_date has passed (stale TEEE guard), otherwise
+    # the enrichment dict carries None and the column is left untouched.
     if enrichment_updates:
         LOGGER.info("Applying EEPP enrichment to %d existing canonical row(s)", len(enrichment_updates))
         for eu in enrichment_updates:
+            vals = {
+                "gross_salary": func.coalesce(JobOffer.gross_salary, eu["gross_salary"]),
+                "first_employment": eu["first_employment"],
+                "vacancies": eu["vacancies"],
+                "prioritized": eu["prioritized"],
+                "updated_at": func.now(),
+            }
+            if eu["state"] is not None:
+                vals["state"] = eu["state"]
             await session.execute(
                 update(JobOffer)
                 .where(JobOffer.id == eu["job_offer_id"])
-                .values(
-                    gross_salary=func.coalesce(JobOffer.gross_salary, eu["gross_salary"]),
-                    first_employment=eu["first_employment"],
-                    vacancies=eu["vacancies"],
-                    prioritized=eu["prioritized"],
-                    updated_at=func.now(),
-                )
+                .values(**vals)
             )
 
     cross_matched = len(rows) - len(rows_to_insert)
