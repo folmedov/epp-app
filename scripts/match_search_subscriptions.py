@@ -113,12 +113,17 @@ async def _send_digest_and_enqueue(
     unsubscribe_token: str,
     matches: list[dict[str, Any]],
     dry_run: bool,
+    total_matches: int | None = None,
 ) -> bool:
     """Send one digest email with all matches, then record queue rows.
 
     Queue rows are only inserted AFTER a successful send.  If the email fails
     or the process crashes before commit, no rows are persisted and the next
     run will retry these matches.
+
+    Args:
+        total_matches: Total matches found before capping.  Used in the email
+            subject so it reflects the real count even when capped.
 
     Returns True on success (email sent + all queue rows written).
     """
@@ -148,6 +153,7 @@ async def _send_digest_and_enqueue(
             email=email,
             matches=offer_term_pairs,
             unsubscribe_token=str(unsubscribe_token),
+            total_matches=total_matches,
         )
     except NotificationError as exc:
         LOGGER.error("Failed to send digest to %s: %s", email, exc)
@@ -194,13 +200,17 @@ async def main(dry_run: bool = False) -> int:
         fail_count = 0
         for email, user_matches in by_email.items():
             token = str(user_matches[0]["unsubscribe_token"])
-            if len(user_matches) > MAX_EMAILS_PER_USER:
+            total_for_user = len(user_matches)
+            if total_for_user > MAX_EMAILS_PER_USER:
                 LOGGER.warning(
                     "Capping %d → %d matches for %s",
-                    len(user_matches), MAX_EMAILS_PER_USER, email,
+                    total_for_user, MAX_EMAILS_PER_USER, email,
                 )
                 user_matches = user_matches[:MAX_EMAILS_PER_USER]
-            ok = await _send_digest_and_enqueue(session, email, token, user_matches, dry_run)
+            ok = await _send_digest_and_enqueue(
+                session, email, token, user_matches, dry_run,
+                total_matches=total_for_user,
+            )
             if not ok:
                 fail_count += 1
 

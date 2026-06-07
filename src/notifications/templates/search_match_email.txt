@@ -1,14 +1,13 @@
 {{ total }} nueva{{ 's' if total != 1 }} oferta{{ 's' if total != 1 }} en tus búsquedas
+
+Se encontraron ofertas en estado postulación que coinciden con tus términos:
 {% for m in matches %}
----
-Búsqueda: «{{ m.term }}»
-{{ m.offer.title }} — {{ m.offer.institution }}{% if m.offer.region %}
-Región: {{ m.offer.region }}{% endif %}{% if m.offer.close_date %}
-Cierre: {{ m.offer.close_date }}{% endif %}{% if m.offer.url %}
-Ver oferta en portal: {{ m.offer.url }}{% endif %}
-{% endfor %}
-Administrar tus búsquedas suscritas:
-{{ search_url }}
+- «{{ m.term }}»: {{ m.offer.title }} — {{ m.offer.institution }}{% if m.offer.region %} ({{ m.offer.region }}){% endif %}{% if m.offer.close_date %} — Cierre: {{ m.offer.close_date }}{% endif %}{% if m.offer.url %}
+  {{ m.offer.url }}{% endif %}
+{% endfor %}{% if capped and capped < total %}
+Mostrando {{ capped }} de {{ total }} ofertas encontradas.
+{% endif %}
+Ver todas tus búsquedas: {{ search_url }}
 
 --
 Job Tracker, {{ base_url }}

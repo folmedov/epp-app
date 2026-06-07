@@ -237,25 +237,31 @@ async def send_search_match_email(
     email: str,
     matches: list[tuple[OfferRow, str]],
     unsubscribe_token: str,
+    total_matches: int | None = None,
 ) -> None:
     """Send a digest notification with all offers matching subscribed terms.
 
     Args:
         email: Recipient email address.
-        matches: List of (offer, term) tuples that matched in this run.
+        matches: List of (offer, term) tuples matched (may be capped).
         unsubscribe_token: Unsubscribe token (UUID string).
+        total_matches: Total matches found before capping.  If None, uses
+            ``len(matches)``.  The email title reflects this total.
 
     Raises:
         NotificationError: If SMTP is not configured or the send fails.
     """
     _check_smtp_config()
 
+    total = total_matches if total_matches is not None else len(matches)
+
     unsubscribe_url = f"{settings.APP_BASE_URL}/unsubscribe/{unsubscribe_token}"
     search_url = f"{settings.APP_BASE_URL}/search-subscriptions?token={unsubscribe_token}"
     match_list = [{"offer": o, "term": t} for o, t in matches]
     context = {
         "matches": match_list,
-        "total": len(match_list),
+        "total": total,
+        "capped": len(match_list),
         "unsubscribe_url": unsubscribe_url,
         "search_url": search_url,
         "base_url": settings.APP_BASE_URL,
@@ -264,7 +270,7 @@ async def send_search_match_email(
     html_body = _render_template("search_match_email.html", context)
     plain_body = _render_template("search_match_email.txt", context)
 
-    subject = f"{len(matches)} nueva{'s' if len(matches) != 1 else ''} oferta{'s' if len(matches) != 1 else ''} en tus búsquedas"
+    subject = f"{total} nueva{'s' if total != 1 else ''} oferta{'s' if total != 1 else ''} en tus búsquedas"
     msg = _build_message(
         to_email=email,
         subject=subject,
