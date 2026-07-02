@@ -82,107 +82,12 @@
   </div>
   {% endif %}
 
-  {# ── Matching offers table ──────────────────────────────────────── #}
-  {% set active_terms = terms | selectattr("active") | list %}
-
-  {% if active_terms and offers %}
-  <div class="panel-header">
-    <span class="results-count">{{ total }} resultado{{ 's' if total != 1 }} en postulacion</span>
-  </div>
-  <div class="table-card">
-    <div class="table-scroll">
-      <table role="table" aria-label="Ofertas coincidentes">
-        <thead>
-          <tr>
-            <th scope="col">Cargo</th>
-            <th scope="col">Institucion</th>
-            <th scope="col">Region</th>
-            <th scope="col">Ciudad</th>
-            <th scope="col">Sueldo Bruto</th>
-            <th scope="col">Estado</th>
-            <th scope="col">Inicio</th>
-            <th scope="col">Cierre</th>
-            <th scope="col">Enlace</th>
-            <th scope="col">Seguir</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for offer in offers %}
-          {% set sl = offer.state | lower %}
-          {% if 'postulaci' in sl or 'publicad' in sl or 'abiert' in sl %}
-            {% set badge_class = 'badge-green' %}
-          {% elif 'cerrad' in sl or 'desiert' in sl or 'suspendid' in sl or 'finaliz' in sl %}
-            {% set badge_class = 'badge-red' %}
-          {% elif 'proceso' in sl or 'evaluaci' in sl %}
-            {% set badge_class = 'badge-orange' %}
-          {% else %}
-            {% set badge_class = 'badge-gray' %}
-          {% endif %}
-          <tr>
-            <td class="col-title">{{ offer.title }}</td>
-            <td>{{ offer.institution }}</td>
-            <td>{{ offer.region or '—' }}</td>
-            <td>{{ offer.city or '—' }}</td>
-            <td>{{ offer.gross_salary | clp }}</td>
-            <td><span class="badge {{ badge_class }}">{{ offer.state }}</span></td>
-            <td>{{ offer.start_date | fmt_date }}</td>
-            <td>{{ offer.close_date | fmt_date_only }}</td>
-            <td class="link-cell">
-              {% if offer.url %}
-              <a href="{{ offer.url }}" target="_blank" rel="noopener noreferrer" aria-label="Ver oferta: {{ offer.title }}">
-                Ver
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
-                  <polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
-                </svg>
-              </a>
-              {% else %}—{% endif %}
-            </td>
-            <td class="follow-cell">
-              {% if token %}
-                {% if offer.is_followed %}
-                <button class="btn-follow btn-follow--active"
-                  data-offer-id="{{ offer.id }}"
-                  onclick="toggleFollow(this)"
-                  aria-label="Dejar de seguir esta oferta">
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
-                  Siguiendo
-                </button>
-                {% else %}
-                <button class="btn-follow"
-                  data-offer-id="{{ offer.id }}"
-                  onclick="toggleFollow(this)"
-                  aria-label="Seguir esta oferta">
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
-                  Seguir
-                </button>
-                {% endif %}
-              {% else %}
-                <span class="text-muted">—</span>
-              {% endif %}
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
+  {# ── Matching offers table (HTMX sortable) ──────────────────────── #}
+  <div id="search-sub-results">
+    {% include "partials/search_subscriptions_table.html" %}
   </div>
 
-  {% elif active_terms %}
-  <div class="panel-header">
-    <span class="results-count">0 resultados en postulacion</span>
-  </div>
-  <div class="table-card">
-    <div class="empty-state" role="status">
-      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-        <line x1="8" y1="11" x2="14" y2="11"/>
-      </svg>
-      <p>No hay ofertas en postulacion que coincidan con tus busquedas.</p>
-    </div>
-  </div>
-
-  {% elif not terms %}
+  {% if not terms %}
   <div class="table-card">
     <div class="empty-state" role="status">
       <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -200,4 +105,21 @@
 
   {% endif %}
 </main>
+
+<script>
+// ── Sort by column header ────────────────────────────────────────────
+var _subSort = '{{ sort or "start_date" }}';
+var _subSortDir = '{{ sort_dir or "desc" }}';
+
+function setSortSub(col) {
+  if (col === _subSort) {
+    _subSortDir = _subSortDir === 'asc' ? 'desc' : 'asc';
+  } else {
+    _subSort = col;
+    _subSortDir = 'asc';
+  }
+  var url = '/search-subscriptions/partial?sort=' + _subSort + '&sort_dir=' + _subSortDir + '&token=' + getToken();
+  htmx.ajax('GET', url, { target: '#search-sub-results', pushUrl: false });
+}
+</script>
 {% endblock %}

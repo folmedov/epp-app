@@ -220,12 +220,14 @@ async def get_offers_by_terms(
     followed_ids: set[str] | None = None,
     page: int = 1,
     per_page: int = 100,
+    sort: str | None = None,
+    sort_dir: str = "desc",
 ) -> tuple[list[OfferRow], int]:
     """Return offers matching ANY of the given search terms (union).
 
     Uses unaccent ILIKE on offer title. Only offers in 'postulacion'
-    state are returned. Followed offers are sorted first, then by
-    close_date ascending (soonest deadline first).
+    state are returned. Default sort: start_date descending (most
+    recent first), with followed offers as tiebreaker.
     """
     if not terms:
         return [], 0
@@ -235,11 +237,31 @@ async def get_offers_by_terms(
         for t in terms
     ]
 
-    # Sort: followed offers first, then soonest-close-date first
-    order: list = [asc(JobOffer.close_date).nullslast()]
+    ALLOWED_SORTS = {
+        "title": JobOffer.title,
+        "institution": JobOffer.institution,
+        "region": JobOffer.region,
+        "city": JobOffer.city,
+        "salary": JobOffer.gross_salary,
+        "state": JobOffer.state,
+        "start_date": JobOffer.start_date,
+        "close_date": JobOffer.close_date,
+    }
+
+    order: list = []
+    if sort and sort in ALLOWED_SORTS:
+        col = ALLOWED_SORTS[sort]
+        if sort_dir == "asc":
+            order.append(asc(col).nullslast())
+        else:
+            order.append(desc(col).nullslast())
+    else:
+        order.append(desc(JobOffer.start_date).nullslast())
+
+    # Tiebreaker: followed offers first
     if followed_ids:
         followed_uuids = [UUID(fid) for fid in followed_ids]
-        order.insert(0, case((JobOffer.id.in_(followed_uuids), 0), else_=1))
+        order.append(case((JobOffer.id.in_(followed_uuids), 0), else_=1))
 
     stmt = select(
         JobOffer.id,

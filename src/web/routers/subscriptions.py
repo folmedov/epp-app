@@ -286,6 +286,8 @@ async def search_subscriptions_page(
     session: DbSession,
     sub: Subscription = Depends(get_optional_subscription),
     page: int = 1,
+    sort: str | None = None,
+    sort_dir: str = "desc",
 ) -> HTMLResponse:
     """Manage search subscription terms with matching results below."""
     if sub is None:
@@ -300,6 +302,8 @@ async def search_subscriptions_page(
                 "total": 0,
                 "term_counts": {},
                 "token": "",
+                "sort": None,
+                "sort_dir": "desc",
             },
         )
 
@@ -325,6 +329,7 @@ async def search_subscriptions_page(
     followed_ids = await get_followed_offer_ids(session, sub.id)
     offers, total = await get_offers_by_terms(
         session, active_terms, followed_ids=followed_ids, page=page,
+        sort=sort, sort_dir=sort_dir,
     )
 
     return templates.TemplateResponse(
@@ -339,6 +344,55 @@ async def search_subscriptions_page(
             "term_counts": term_counts,
             "token": str(sub.unsubscribe_token) if sub.unsubscribe_token else "",
             "email": sub.email,
+            "sort": sort,
+            "sort_dir": sort_dir,
+        },
+    )
+
+
+@router.get("/search-subscriptions/partial", response_class=HTMLResponse)
+async def search_subscriptions_partial(
+    request: Request,
+    session: DbSession,
+    sub: Subscription = Depends(get_optional_subscription),
+    page: int = 1,
+    sort: str | None = None,
+    sort_dir: str = "desc",
+) -> HTMLResponse:
+    """HTMX partial: returns only the matching offers table.
+
+    When accessed directly (no HX-Request header), redirects to the full page.
+    """
+    if not request.headers.get("HX-Request"):
+        return RedirectResponse(url="/search-subscriptions", status_code=302)
+
+    if sub is None:
+        return HTMLResponse(status_code=401, content="No autorizado")
+
+    result = await session.execute(
+        select(SearchSubscription)
+        .where(SearchSubscription.subscription_id == sub.id)
+        .order_by(SearchSubscription.created_at.desc())
+    )
+    terms: list[SearchSubscription] = result.scalars().all()  # type: ignore[assignment]
+
+    active_terms = [ss.term for ss in terms if ss.active]
+    followed_ids = await get_followed_offer_ids(session, sub.id)
+    offers, total = await get_offers_by_terms(
+        session, active_terms, followed_ids=followed_ids, page=page,
+        sort=sort, sort_dir=sort_dir,
+    )
+
+    return templates.TemplateResponse(
+        request,
+        "partials/search_subscriptions_table.html",
+        {
+            "terms": terms,
+            "offers": offers,
+            "total": total,
+            "token": str(sub.unsubscribe_token) if sub.unsubscribe_token else "",
+            "sort": sort,
+            "sort_dir": sort_dir,
         },
     )
 
