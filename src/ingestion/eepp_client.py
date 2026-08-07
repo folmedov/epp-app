@@ -65,6 +65,12 @@ class EEPPResponseFormatError(EEPPClientError):
 	"""Raised when an EEPP endpoint returns an unexpected payload."""
 
 
+_BROWSER_UA = (
+	"Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+	"AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+)
+
+
 class EEPPClient:
 	"""Minimal async client for EEPP public job offer endpoints."""
 
@@ -103,9 +109,12 @@ class EEPPClient:
 
 		try:
 			if self._client is not None:
-				response = await self._client.get(url)
+				response = await self._client.get(url, headers={"User-Agent": _BROWSER_UA})
 			else:
-				async with httpx.AsyncClient(timeout=self._timeout) as client:
+				async with httpx.AsyncClient(
+					timeout=self._timeout,
+					headers={"User-Agent": _BROWSER_UA},
+				) as client:
 					response = await client.get(url)
 
 			response.raise_for_status()
